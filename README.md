@@ -2,6 +2,11 @@
 
 [Hello Minecraft! Launcher](https://github.com/HMCL-dev/HMCL) 的定制版源码，附带一套在其插件系统上运行的插件。
 
+[![Topic](https://img.shields.io/badge/topic-erren282s--launcher--plugins-blue)](https://github.com/topics/erren282s-launcher-plugins)
+
+- 主 topic：`erren282s-launcher-plugins` —— 聚合页 <https://github.com/topics/erren282s-launcher-plugins>
+- 通用 topic：`hmcl-plugin` —— <https://github.com/topics/hmcl-plugin>
+
 - **启动器源码**：`HMCL/`、`HMCLCore/`、`HMCLBoot/`（含 UI、下载、账户、Mod 解析与插件系统）
 - **插件源码**：`plugins/`（10 个插件，逐个目录，附 `hmcl.plugin.json` 与构建脚本）
 - **插件清单与说明**：见 [**PLUGINS.md**](PLUGINS.md)
