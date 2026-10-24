@@ -1,9 +1,0 @@
-{
-  "id": "org.dsh.server-manager",
-  "name": "服务端管理器",
-  "version": "1.1.3",
-  "author": "dsh",
-  "description": "在启动器内管理各版本 Minecraft 服务端：下载原版/Paper 服务端或导入现有服务端，一键开设并自动向局域网广播，内置控制台与心跳保活；服务端在独立控制台窗口中运行，关闭启动器后可继续管理，重启启动器会自动接入",
-  "entry": "org.dsh.servermanager.ServerManagerPlugin",
-  "minLauncherVersion": "3.16.4"
-}

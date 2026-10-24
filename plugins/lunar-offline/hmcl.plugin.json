@@ -1,9 +1,0 @@
-{
-  "id": "org.dsh.lunar-offline",
-  "name": "Lunar 客户端",
-  "version": "1.7.0",
-  "author": "dsh",
-  "description": "在「下载」页从 Lunar 官方源下载客户端并一键启动（无需 Celestial）；缺少原版时可一键同时下载原版与 Lunar。本版本：①启动 Lunar 时自动把启动器里选中的正版账户同步为客户端当前账户（游戏只认自己的 accounts.json，过去不同步就会沿用上次的账户或停在账户选择界面）；②修游戏内「点头像切换账户」点了没反应——客户端切换依赖启动器主动推送 NotifySwitchAccount 通知，过去从不推送，现在由包装类监视 accounts.json 并在账户变化时即时通知游戏，同时规范化账户字段（type 必须是 XBOX/MOJANG、补齐 localId/remoteId/username），不必再靠重新登录换账户。",
-  "entry": "org.dsh.lunarofl.LunarOfflinePlugin",
-  "minLauncherVersion": "3.16.4"
-}
