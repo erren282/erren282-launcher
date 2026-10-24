@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.mod-deps",
+  "name": "前置 Mod 自动下载",
+  "version": "1.0.0",
+  "author": "dsh",
+  "description": "下载 Mod 后自动补齐其必需的前置依赖（包括前置的前置）：解析 Modrinth / CurseForge 依赖关系，把实例中缺失的前置自动下载到 mods 目录",
+  "entry": "org.dsh.moddeps.ModDepsPlugin",
+  "minLauncherVersion": "3.16.4"
+}

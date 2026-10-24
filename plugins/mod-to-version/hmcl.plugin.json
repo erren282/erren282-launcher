@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.mod-to-version",
+  "name": "下载内容到指定版本",
+  "version": "1.1.3",
+  "author": "dsh",
+  "description": "在模组、资源包、光影、世界的下载弹窗里为「下载到本地文件夹」旁边增加一个「下载到对应版本」按钮：列出符合该内容要求的已安装游戏版本，选中后直接下载进那个版本的 mods / resourcepacks / shaderpacks 目录，世界则解压安装到 saves。本版本：①自动识别 Lunar 客户端——它基于 Fabric 运行，过去被显示成「未检测到加载器」而拒绝所有 Fabric 模组，现在可以正常选中；②不再列出带 hidden 标记的内部底座版本（如 Lunar 生成的 26.2-lunar-base），只列用户真正能玩的实例。",
+  "entry": "org.dsh.modtoversion.ModToVersionPlugin",
+  "minLauncherVersion": "3.16.4"
+}

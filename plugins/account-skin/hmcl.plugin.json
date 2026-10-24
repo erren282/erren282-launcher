@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.account-skin",
+  "name": "账户皮肤切换",
+  "version": "1.0.0",
+  "author": "dsh",
+  "description": "在账户列表为每个账户切换皮肤与披风：在线来源为 LittleSkin 皮肤库，也支持本地皮肤/披风文件；支持微软、第三方（皮肤站）与离线账户",
+  "entry": "org.dsh.accountskin.AccountSkinPlugin",
+  "minLauncherVersion": "3.16.4"
+}

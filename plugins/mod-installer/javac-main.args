@@ -1,0 +1,16 @@
+--release
+17
+-encoding
+UTF-8
+-cp
+E:\game\gamea\mcl\HMCL-test\HMCL-3.16.4.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-base-21.0.8-win.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-controls-21.0.8-win.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-graphics-21.0.8-win.jar
+-d
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\out
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\McVersionRange.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModDropPlan.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModInstallDialog.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModInstallerEngine.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModInstallerPlugin.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModJarInfo.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\ModVersionPickerDialog.java
+E:\game\gamea\mcl\HMCL\docs\plugin\mod-installer\src\org\dsh\modinstall\Toml.java

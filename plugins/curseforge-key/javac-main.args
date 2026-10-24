@@ -1,0 +1,13 @@
+--release
+17
+-encoding
+UTF-8
+-cp
+E:\game\gamea\mcl\HMCL-test\HMCL-3.16.4.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-base-25-win.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-controls-25-win.jar;E:\game\gamea\mcl\HMCL-test\.hmcl\dependencies\windows-x86_64\openjfx\javafx-graphics-25-win.jar
+-d
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\out
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\src\org\dsh\cfkey\CurseForgeKeyPlugin.java
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\src\org\dsh\cfkey\KeyDialog.java
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\src\org\dsh\cfkey\KeyInstaller.java
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\src\org\dsh\cfkey\KeyStore.java
+E:\game\gamea\mcl\HMCL\docs\plugin\curseforge-key\src\org\dsh\cfkey\KeyVerifier.java

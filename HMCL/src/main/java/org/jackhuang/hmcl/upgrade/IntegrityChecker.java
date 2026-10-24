@@ -1,0 +1,150 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2020  huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package org.jackhuang.hmcl.upgrade;
+
+import org.jackhuang.hmcl.Metadata;
+import org.jackhuang.hmcl.util.DigestUtils;
+import org.jackhuang.hmcl.util.Lang;
+import org.jackhuang.hmcl.util.io.IOUtils;
+import org.jackhuang.hmcl.util.io.JarUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Path;
+import java.security.*;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.TreeMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.jackhuang.hmcl.util.logging.Logger.LOG;
+
+/// Checks whether the running launcher jar carries a valid HMCL signature.
+///
+/// <p>The launcher no longer downloads or installs updates itself; this check is still used
+/// by the account UI to decide whether the build is an official, unmodified HMCL (for example
+/// to show the "unofficial build" hint on Microsoft login).</p>
+///
+/// @author yushijinhun
+public final class IntegrityChecker {
+    private IntegrityChecker() {}
+
+    public static final boolean DISABLE_SELF_INTEGRITY_CHECK = "true".equals(System.getProperty("hmcl.self_integrity_check.disable"));
+
+    private static final String SIGNATURE_FILE = "META-INF/hmcl_signature";
+    private static final String PUBLIC_KEY_FILE = "assets/hmcl_signature_publickey.der";
+
+    private static PublicKey getPublicKey() throws IOException {
+        try (InputStream in = IntegrityChecker.class.getResourceAsStream("/" + PUBLIC_KEY_FILE)) {
+            if (in == null) {
+                throw new IOException("Public key not found");
+            }
+            return KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(IOUtils.readFully(in)));
+        } catch (GeneralSecurityException e) {
+            throw new IOException("Failed to load public key", e);
+        }
+    }
+
+    /// Verifies the signature of the given launcher jar.
+    ///
+    /// @param jarPath the jar to verify
+    /// @throws IOException when the signature is missing or invalid
+    public static void verifyJar(Path jarPath) throws IOException {
+        PublicKey publickey = getPublicKey();
+        MessageDigest md = DigestUtils.getDigest("SHA-512");
+
+        byte[] signature = null;
+        Map<String, byte[]> fileFingerprints = new TreeMap<>();
+        try (ZipFile zip = new ZipFile(jarPath.toFile())) {
+            for (ZipEntry entry : Lang.toIterable(zip.entries())) {
+                String filename = entry.getName();
+                try (InputStream in = zip.getInputStream(entry)) {
+                    if (in == null) {
+                        throw new IOException("entry is null");
+                    }
+
+                    if (SIGNATURE_FILE.equals(filename)) {
+                        signature = IOUtils.readFully(in);
+                    } else {
+                        md.reset();
+                        fileFingerprints.put(filename, DigestUtils.digest(md, in));
+                    }
+                }
+            }
+        }
+
+        if (signature == null) {
+            throw new IOException("Signature is missing");
+        }
+
+        try {
+            Signature verifier = Signature.getInstance("SHA512withRSA");
+            verifier.initVerify(publickey);
+            for (Entry<String, byte[]> entry : fileFingerprints.entrySet()) {
+                md.reset();
+                verifier.update(md.digest(entry.getKey().getBytes(UTF_8)));
+                verifier.update(entry.getValue());
+            }
+            if (!verifier.verify(signature)) {
+                throw new IOException("Invalid signature: " + jarPath);
+            }
+        } catch (GeneralSecurityException e) {
+            throw new IOException("Failed to verify signature", e);
+        }
+    }
+
+    private static volatile Boolean selfVerified = null;
+
+    /// Checks whether the current application is verified.
+    /// This method is blocking.
+    public static boolean isSelfVerified() {
+        if (selfVerified != null) {
+            return selfVerified;
+        }
+
+        synchronized (IntegrityChecker.class) {
+            if (selfVerified != null) {
+                return selfVerified;
+            }
+
+            try {
+                Path jarPath = JarUtils.thisJarPath();
+                if (jarPath == null) {
+                    throw new IOException("Failed to find current HMCL location");
+                }
+
+                verifyJar(jarPath);
+                LOG.info("Successfully verified current JAR");
+                selfVerified = true;
+            } catch (IOException e) {
+                LOG.warning("Failed to verify myself, is the JAR corrupt?", e);
+                selfVerified = false;
+            }
+
+            return selfVerified;
+        }
+    }
+
+    /// Whether this build is an official HMCL release (signed) or an official nightly build.
+    public static boolean isOfficial() {
+        return isSelfVerified() || (Metadata.GITHUB_SHA != null && Metadata.BUILD_CHANNEL.equals("nightly"));
+    }
+}

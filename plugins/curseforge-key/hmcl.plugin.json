@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.curseforge-key",
+  "name": "CurseForge 下载源",
+  "version": "1.2.1",
+  "author": "dsh",
+  "description": "在下载页的模组、整合包、资源包、光影分区中显示 CurseForge 下载源；首次选用时要求填入 CurseForge API Key，验证通过后加密保存并立即生效",
+  "entry": "org.dsh.cfkey.CurseForgeKeyPlugin",
+  "minLauncherVersion": "3.16.4"
+}

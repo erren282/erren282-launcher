@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.server-hub",
+  "name": "服务器模块",
+  "version": "1.0.1",
+  "author": "dsh",
+  "description": "把已安装的服务器相关插件（服务端管理、服务器列表）汇聚成主页面上的一个「服务器」入口。",
+  "entry": "org.dsh.serverhub.ServerHubPlugin",
+  "minLauncherVersion": "3.16.4"
+}

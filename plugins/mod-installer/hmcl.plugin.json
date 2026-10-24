@@ -1,0 +1,9 @@
+{
+  "id": "org.dsh.mod-installer",
+  "name": "拖入安装 Mod",
+  "version": "1.0.0",
+  "author": "dsh",
+  "description": "在主页面拖入 Mod 文件时自动识别它支持的游戏版本与加载器，列出本机对应的游戏版本，确认后安装；安装前检查前置 Mod 并提供自动安装；多个不同版本/加载器的 Mod 会给出提示",
+  "entry": "org.dsh.modinstall.ModInstallerPlugin",
+  "minLauncherVersion": "3.16.4"
+}
