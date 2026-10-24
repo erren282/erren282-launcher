@@ -1,4 +1,4 @@
-# HMCL 定制版启动器
+﻿# HMCL 定制版启动器
 
 [Hello Minecraft! Launcher](https://github.com/HMCL-dev/HMCL) 3.16.4 的定制版源码，主要改动是**内建插件系统**。
 
@@ -41,3 +41,15 @@ Windows 用 `gradlew.bat`。产物在 `HMCL/build/libs/`。
 遵循上游 HMCL 的 GPL-3.0，见 [LICENSE](LICENSE)。
 
 上游项目：<https://github.com/HMCL-dev/HMCL>
+
+---
+
+## 说明：本项目为 Vibe Coding 产物
+
+**本项目的全部代码均由 AI（大语言模型）生成**，通过对话式编程（vibe coding）完成——
+人类只提出需求、给出反馈与验收，不手写实现代码。
+
+- 代码可能包含未经验证的边界情况、不一致的风格，或与常规工程实践不同的设计取舍
+- 请在生产环境使用前自行审查、测试与评估
+- 基于上游 [HMCL](https://github.com/HMCL-dev/HMCL) 修改，上游版权归其作者所有
+- 欢迎提交 issue 或 PR 改进
