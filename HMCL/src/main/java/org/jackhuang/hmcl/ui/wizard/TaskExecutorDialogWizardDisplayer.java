@@ -89,7 +89,13 @@ public abstract class TaskExecutorDialogWizardDisplayer extends AbstractWizardDi
                 }
             });
             pane.setExecutor(executor);
-            Controllers.dialog(pane);
+
+            // In background mode the task runs without the modal progress dialog. That dialog
+            // covered the launcher for the whole install, which is exactly what the download center
+            // replaces; the task still reports progress through the download events.
+            if (!Controllers.isBackgroundTasks())
+                Controllers.dialog(pane);
+
             executor.start();
         });
     }

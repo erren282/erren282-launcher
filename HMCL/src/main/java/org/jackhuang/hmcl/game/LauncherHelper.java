@@ -134,6 +134,13 @@ public final class LauncherHelper {
 
         LOG.info("Launching game version: " + selectedVersion);
 
+        // Plugins that add UI need to know a launch is in flight so they can stop offering actions
+        // that would interfere with it.
+        org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
+                new org.jackhuang.hmcl.event.GameLaunchStateEvent(this,
+                        org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.STARTING,
+                        selectedVersion));
+
         Controllers.dialog(launchingStepsPane);
         launch0();
     }
@@ -890,6 +897,17 @@ public final class LauncherHelper {
         }
 
         private void finishLaunch() {
+            // The launch is over, whether it succeeded or the window is coming back; plugins can
+            // re-enable whatever they disabled for the duration.
+            try {
+                runLater(() -> org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
+                        new org.jackhuang.hmcl.event.GameLaunchStateEvent(LauncherHelper.this,
+                                org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.FINISHED,
+                                selectedVersion)));
+            } catch (Throwable ignored) {
+                // Reporting must never break the launch flow.
+            }
+
             switch (launcherVisibility) {
                 case HIDE_AND_REOPEN:
                     runLater(() -> {

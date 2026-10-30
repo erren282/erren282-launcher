@@ -206,6 +206,56 @@ public final class LauncherRoot {
         FXUtils.runInFX(() -> Controllers.taskDialog(task, title, TaskCancellationAction.NORMAL));
     }
 
+    /// Reports a download started by a plugin, so the launcher can display it.
+    ///
+    /// <p>Plugins that fetch files with their own code — rather than through the launcher's tasks —
+    /// have no way to appear in the download list. This publishes the same events the built-in
+    /// downloader emits, which is what makes such a download visible in one place.</p>
+    ///
+    /// <p>Call with `STARTED` once, `PROGRESS` as bytes arrive, and `FINISHED` or `FAILED` at the
+    /// end. The batch name groups many files under one row; pass `null` to list the file on its
+    /// own.</p>
+    ///
+    /// @param phase    the lifecycle point
+    /// @param url      the source URL
+    /// @param name     a display name
+    /// @param target   the destination path, or an empty string
+    /// @param received bytes transferred
+    /// @param total    total bytes, or `0` when unknown
+    /// @param batch    a group name, or `null`
+    public void reportDownload(org.jackhuang.hmcl.event.DownloadEvent.Phase phase,
+                               String url, String name, String target,
+                               long received, long total, String batch) {
+        reportDownload(phase, url, name, target, received, total, batch, null);
+    }
+
+    /// Reports a plugin download and offers a way to stop it.
+    ///
+    /// <p>Pass `STARTED` once with a [cancelAction] that aborts the transfer; the download list
+    /// then shows a working cancel button for it.</p>
+    ///
+    /// @param phase        the lifecycle point
+    /// @param url          the source URL
+    /// @param name         a display name
+    /// @param target       the destination path, or an empty string
+    /// @param received     bytes transferred
+    /// @param total        total bytes, or `0` when unknown
+    /// @param batch        a group name, or `null`
+    /// @param cancelAction stops the download, or `null` when it cannot be stopped
+    public void reportDownload(org.jackhuang.hmcl.event.DownloadEvent.Phase phase,
+                               String url, String name, String target,
+                               long received, long total, String batch,
+                               @Nullable Runnable cancelAction) {
+        String message = phase == org.jackhuang.hmcl.event.DownloadEvent.Phase.FAILED
+                ? name : null;
+        org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
+                new org.jackhuang.hmcl.event.DownloadEvent(this, phase, url, name, target,
+                        received, total, 0, message, batch,
+                        // Only the start carries the handle; later phases would just repeat it.
+                        phase == org.jackhuang.hmcl.event.DownloadEvent.Phase.STARTED
+                                ? cancelAction : null));
+    }
+
     // ---------------------------------------------------------------- settings
 
     /// Returns the live per-workspace launcher settings.

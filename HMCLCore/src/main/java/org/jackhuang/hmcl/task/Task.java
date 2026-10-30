@@ -170,6 +170,27 @@ public abstract class Task<T> {
         return this;
     }
 
+    /// The executor driving the run this task belongs to, set when the run starts.
+    ///
+    /// <p>Cancelling one file in a multi-file task is not enough: the remaining files are separate
+    /// tasks that keep going. The run's executor is what stops the whole tree, and it is only
+    /// reachable from here because a task does not otherwise know who is driving it.</p>
+    private @Nullable TaskExecutor ownerExecutor;
+
+    /// Stores the executor driving this task's run.
+    ///
+    /// @param executor the executor
+    void setOwnerExecutor(@Nullable TaskExecutor executor) {
+        this.ownerExecutor = executor;
+    }
+
+    /// Returns the executor driving this task's run.
+    ///
+    /// @return the executor, or `null` when the task has not started
+    public final @Nullable TaskExecutor getOwnerExecutor() {
+        return ownerExecutor;
+    }
+
     // dependents succeeded
     private boolean dependentsSucceeded = false;
 
@@ -345,6 +366,10 @@ public abstract class Task<T> {
     protected void updateProgress(long count, long total) {
         if (count < 0 || total < 0)
             throw new IllegalArgumentException("Invalid count or total: count=" + count + ", total=" + total);
+
+        // Report to plugins before the value is normalised, so byte counts stay exact.
+        if (this instanceof FetchTask<?> fetch)
+            DownloadReporter.progress(fetch, count, total);
 
         updateProgress(count < total ? (double) count / total : 1.0);
     }

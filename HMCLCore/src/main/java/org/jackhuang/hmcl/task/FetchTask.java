@@ -96,6 +96,10 @@ public abstract class FetchTask<T> extends Task<T> {
             }
         }
 
+        // Announce the download so plugins can track it. Every file the launcher fetches goes
+        // through here, so this is the one place that covers both UI-driven and background tasks.
+        DownloadReporter.started(this);
+
         ArrayList<DownloadException> exceptions = null;
 
         if (SEMAPHORE != null)
@@ -107,6 +111,7 @@ public abstract class FetchTask<T> extends Task<T> {
                         downloadHttp(uri, checkETag);
                     else
                         downloadNotHttp(uri);
+                    DownloadReporter.finished(this);
                     return;
                 } catch (DownloadException e) {
                     if (exceptions == null)
@@ -126,6 +131,7 @@ public abstract class FetchTask<T> extends Task<T> {
             for (DownloadException exception : exceptions) {
                 last.addSuppressed(exception);
             }
+            DownloadReporter.failed(this, String.valueOf(last.getMessage()));
             throw last;
         }
     }
@@ -233,6 +239,15 @@ public abstract class FetchTask<T> extends Task<T> {
                           @Nullable FetchTask.HttpResumeContext resume, InputStream inputStream,
                           long contentLength,
                           ContentEncoding contentEncoding) throws IOException, InterruptedException {
+        // A single connection rarely saturates a fast link. When the server offers byte ranges and
+        // the file is large, fetch it over several connections instead and hand the assembled
+        // bytes to the same writer, so hashing and atomic replacement stay unchanged.
+        if (resume == null && contentEncoding == ContentEncoding.IDENTITY
+                && contentLength >= ParallelDownload.MIN_SIZE) {
+            if (downloadParallel(context, contentLength))
+                return;
+        }
+
         boolean success = false;
         try (var counter = new CounterInputStream(inputStream);
              var input = contentEncoding.wrap(counter)) {
@@ -276,6 +291,62 @@ public abstract class FetchTask<T> extends Task<T> {
 
         if (success) {
             context.withResult(true);
+        }
+    }
+
+    /// Downloads the current URI over several connections and feeds the assembled bytes to a writer.
+    ///
+    /// <p>Buffering goes through a temporary file rather than memory: the pieces are fetched out of
+    /// order, and a game library can be tens of megabytes. Returning `false` means the server turned
+    /// out not to support ranges, and the caller should continue with the open single stream.</p>
+    ///
+    /// @param context       where the bytes must end up
+    /// @param contentLength the expected size
+    /// @return whether the parallel attempt produced a complete file
+    private boolean downloadParallel(Context context, long contentLength) throws InterruptedException {
+        if (uris.isEmpty())
+            return false;
+
+        URI uri = uris.get(0);
+        Path temp = null;
+        try {
+            temp = java.nio.file.Files.createTempFile("hmcl-parallel", ".part");
+
+            Path staging = temp;
+            ParallelDownload.download(uri, staging, contentLength, ParallelDownload.MAX_PARTS,
+                    (received, total) -> {
+                        updateProgress(received, total > 0 ? total : contentLength);
+                    },
+                    this::isCancelled);
+
+            try (InputStream assembled = new BufferedInputStream(java.nio.file.Files.newInputStream(staging))) {
+                byte[] buffer = new byte[IOUtils.DEFAULT_BUFFER_SIZE];
+                while (true) {
+                    if (isCancelled())
+                        throw new InterruptedException();
+
+                    int len = assembled.read(buffer);
+                    if (len == -1)
+                        break;
+                    context.write(buffer, 0, len);
+                }
+            }
+
+            context.withResult(true);
+            return true;
+        } catch (Throwable e) {
+            // Any failure here means the caller should retry over the plain stream, which is the
+            // path that has always worked.
+            LOG.warning("Parallel download failed, falling back to a single stream: " + e);
+            return false;
+        } finally {
+            if (temp != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(temp);
+                } catch (IOException ignored) {
+                    // A leftover temp file is harmless.
+                }
+            }
         }
     }
 

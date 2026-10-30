@@ -664,7 +664,14 @@ public final class Controllers {
         TaskExecutorDialogPane pane = new TaskExecutorDialogPane(onCancel);
         pane.setTitle(title);
         pane.setExecutor(executor);
-        dialog(pane);
+
+        // In background mode the task runs without a modal dialog. Suppressing it here rather than
+        // at each call site is what makes the download center actually take over: there are a dozen
+        // callers (install wizard, modpack import, addon updates, redownloads), and covering them
+        // one by one left several still popping the dialog over the launcher.
+        if (!backgroundTasks)
+            dialog(pane);
+
         return pane;
     }
 
@@ -673,6 +680,47 @@ public final class Controllers {
         TaskExecutorDialogPane pane = taskDialog(executor, title, onCancel);
         executor.start();
         return pane;
+    }
+
+    /// Whether task dialogs are suppressed so downloads run without covering the window.
+    ///
+    /// <p>Installing a game used to open a modal progress dialog that stayed on top until it
+    /// finished. With this enabled the task still runs — and still reports progress through the
+    /// download events — but no dialog appears; the download center lists it instead.</p>
+    private static volatile boolean backgroundTasks = true;
+
+    /// Returns whether task dialogs are suppressed.
+    ///
+    /// @return whether downloads run without a dialog
+    public static boolean isBackgroundTasks() {
+        return backgroundTasks;
+    }
+
+    /// Sets whether task dialogs are suppressed.
+    ///
+    /// @param value whether to run tasks without a dialog
+    public static void setBackgroundTasks(boolean value) {
+        backgroundTasks = value;
+    }
+
+    /// Runs a task, showing a progress dialog only when background mode is off.
+    ///
+    /// @param task     the task to run
+    /// @param title    the dialog title used in the foreground case
+    /// @param onCancel how cancellation should behave
+    /// @return the executor driving the task
+    public static TaskExecutor runTask(Task<?> task, String title, @NotNull TaskCancellationAction onCancel) {
+        TaskExecutor executor = task.executor();
+
+        if (!backgroundTasks) {
+            TaskExecutorDialogPane pane = new TaskExecutorDialogPane(onCancel);
+            pane.setTitle(title);
+            pane.setExecutor(executor);
+            dialog(pane);
+        }
+
+        executor.start();
+        return executor;
     }
 
     public static void navigate(Node node) {

@@ -52,6 +52,21 @@ public final class PluginMenuService {
     private static final ObservableList<PluginCrashAction> crashActions = FXCollections.observableArrayList();
     private static final ObservableList<PluginCrashListener> crashListeners = FXCollections.observableArrayList();
 
+    /// Listeners receiving download lifecycle events, keyed by the wrapper registered on the bus.
+    ///
+    /// <p>Subscribed directly to the launcher's event bus rather than polled, so a plugin learns
+    /// about a download the moment it starts instead of on its next refresh. The map keeps the bus
+    /// wrapper so unregistering can remove exactly what was added.</p>
+    private static final java.util.Map<java.util.function.Consumer<org.jackhuang.hmcl.event.DownloadEvent>,
+            java.util.function.Consumer<org.jackhuang.hmcl.event.DownloadEvent>> downloadListeners =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /// Listeners receiving game launch state changes.
+    private static final java.util.Map<
+            java.util.function.Consumer<org.jackhuang.hmcl.event.GameLaunchStateEvent>,
+            java.util.function.Consumer<org.jackhuang.hmcl.event.GameLaunchStateEvent>> launchListeners =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private PluginMenuService() {
     }
 
@@ -356,6 +371,77 @@ public final class PluginMenuService {
     /// Returns the registered crash listeners; read on the JavaFX application thread.
     public static ObservableList<PluginCrashListener> getCrashListeners() {
         return crashListeners;
+    }
+
+    /// Registers a listener for game launch start and end. Thread-safe.
+    ///
+    /// <p>Events arrive on the thread that drives the launch — usually the JavaFX thread — so a
+    /// listener may touch the UI directly, but should still be quick.</p>
+    ///
+    /// @param listener the listener
+    public static void registerLaunchListener(
+            java.util.function.Consumer<org.jackhuang.hmcl.event.GameLaunchStateEvent> listener) {
+        Objects.requireNonNull(listener);
+        if (launchListeners.putIfAbsent(listener, listener) != null)
+            return;
+
+        java.util.function.Consumer<org.jackhuang.hmcl.event.GameLaunchStateEvent> wrapper = event -> {
+            try {
+                listener.accept(event);
+            } catch (Throwable ignored) {
+                // A failing plugin listener must not disturb the launch.
+            }
+        };
+        org.jackhuang.hmcl.event.EventBus.EVENT_BUS
+                .channel(org.jackhuang.hmcl.event.GameLaunchStateEvent.class)
+                .register(wrapper);
+    }
+
+    /// Removes a launch listener. Thread-safe.
+    ///
+    /// @param listener the listener to remove
+    public static void unregisterLaunchListener(
+            java.util.function.Consumer<org.jackhuang.hmcl.event.GameLaunchStateEvent> listener) {
+        Objects.requireNonNull(listener);
+        launchListeners.remove(listener);
+    }
+
+    /// Registers a listener for download lifecycle events. Thread-safe.
+    ///
+    /// <p>Events are delivered on the downloading thread, so a listener that touches the UI must
+    /// marshal to the JavaFX thread itself.</p>
+    ///
+    /// <p>The subscription is weak: once a plugin drops its reference to the listener — which
+    /// happens when it is disabled or reloaded — the bus stops calling it. That avoids needing an
+    /// unregister call, which [org.jackhuang.hmcl.event.EventManager] does not offer.</p>
+    ///
+    /// @param listener the listener
+    public static void registerDownloadListener(
+            java.util.function.Consumer<org.jackhuang.hmcl.event.DownloadEvent> listener) {
+        Objects.requireNonNull(listener);
+        if (downloadListeners.putIfAbsent(listener, listener) != null)
+            return;
+
+        java.util.function.Consumer<org.jackhuang.hmcl.event.DownloadEvent> wrapper = event -> {
+            try {
+                listener.accept(event);
+            } catch (Throwable ignored) {
+                // A failing plugin listener must not disturb the download.
+            }
+        };
+        // The wrapper is held by the map so it is not collected while the plugin is alive.
+        org.jackhuang.hmcl.event.EventBus.EVENT_BUS
+                .channel(org.jackhuang.hmcl.event.DownloadEvent.class)
+                .register(wrapper);
+    }
+
+    /// Removes a previously registered download listener. Thread-safe.
+    ///
+    /// @param listener the listener to remove
+    public static void unregisterDownloadListener(
+            java.util.function.Consumer<org.jackhuang.hmcl.event.DownloadEvent> listener) {
+        Objects.requireNonNull(listener);
+        downloadListeners.remove(listener);
     }
 
     /// Navigates to the given main-window plugin page. Thread-safe.

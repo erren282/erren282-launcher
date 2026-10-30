@@ -203,6 +203,9 @@ public final class AsyncTaskExecutor extends TaskExecutor {
 
                     task.setCancelled(this::isCancelled);
                     task.setState(Task.TaskState.READY);
+                    // Every task in the run learns who is driving it, so a download can stop the
+                    // whole tree rather than only its own file.
+                    task.setOwnerExecutor(this);
                     if (task.getStage() != null) {
                         task.setInheritedStage(task.getStage());
                     } else if (parentTask != null) {
