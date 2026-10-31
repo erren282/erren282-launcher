@@ -20,9 +20,11 @@ package org.jackhuang.hmcl.game;
 import org.jackhuang.hmcl.download.DownloadProvider;
 import org.jackhuang.hmcl.addon.RemoteAddon;
 import org.jackhuang.hmcl.addon.RemoteAddonRepository;
+import org.jackhuang.hmcl.addon.mod.ModLoaderType;
 import org.jackhuang.hmcl.ui.versions.ModTranslations;
 import org.jackhuang.hmcl.util.Pair;
 import org.jackhuang.hmcl.util.StringUtils;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -42,8 +44,13 @@ public abstract class LocalizedRemoteAddonRepository implements RemoteAddonRepos
 
     @Override
     public SearchResult search(DownloadProvider downloadProvider, String gameVersion, Category category, int pageOffset, int pageSize, String searchFilter, SortType sort, SortOrder sortOrder) throws IOException {
+        return search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder, null);
+    }
+
+    @Override
+    public SearchResult search(DownloadProvider downloadProvider, String gameVersion, Category category, int pageOffset, int pageSize, String searchFilter, SortType sort, SortOrder sortOrder, @Nullable ModLoaderType modLoader) throws IOException {
         if (!StringUtils.containsChinese(searchFilter)) {
-            return getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder);
+            return getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder, modLoader);
         }
 
         Set<String> englishSearchFiltersSet = new LinkedHashSet<>(INITIAL_CAPACITY);
@@ -60,7 +67,7 @@ public abstract class LocalizedRemoteAddonRepository implements RemoteAddonRepos
         }
 
         if (englishSearchFiltersSet.isEmpty()) {
-            return getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder);
+            return getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder, modLoader);
         }
 
         RemoteAddon[] searchResultArray = new RemoteAddon[pageSize];
@@ -69,7 +76,7 @@ public abstract class LocalizedRemoteAddonRepository implements RemoteAddonRepos
             SearchResult searchResult = null;
             List<RemoteAddon> remoteAddons = List.of();
             for (String englishSearchFilter : englishSearchFiltersSet) {
-                searchResult = getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, englishSearchFilter, getBackedRemoteModRepositorySortOrder(), sortOrder);
+                searchResult = getBackedRemoteModRepository().search(downloadProvider, gameVersion, category, pageOffset, pageSize, englishSearchFilter, getBackedRemoteModRepositorySortOrder(), sortOrder, modLoader);
                 remoteAddons = searchResult.getUnsortedResults().toList();
                 if (!remoteAddons.isEmpty()) {
                     break;

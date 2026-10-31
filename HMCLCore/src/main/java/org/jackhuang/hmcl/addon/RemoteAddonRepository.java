@@ -17,6 +17,7 @@
  */
 package org.jackhuang.hmcl.addon;
 
+import org.jackhuang.hmcl.addon.mod.ModLoaderType;
 import org.jackhuang.hmcl.download.DownloadProvider;
 import org.jetbrains.annotations.Nullable;
 
@@ -87,6 +88,25 @@ public interface RemoteAddonRepository {
 
     SearchResult search(DownloadProvider downloadProvider, String gameVersion, @Nullable Category category, int pageOffset, int pageSize, String searchFilter, SortType sortType, SortOrder sortOrder)
             throws IOException;
+
+    /// Searches restricted to one mod loader.
+    ///
+    /// <p>Mods and modpacks are almost always loader-specific, so browsing without this filter
+    /// returns a mix that the user has to pick through. Repositories that can express the filter
+    /// server-side override this and narrow the query itself; the default deliberately ignores the
+    /// loader rather than failing, and callers treat `null` as "any loader".</p>
+    ///
+    /// @param gameVersion the Minecraft version, or blank for all
+    /// @param category     the category filter, or `null`
+    /// @param modLoader    the loader to restrict to, or `null` for any
+    /// @return the results
+    default SearchResult search(DownloadProvider downloadProvider, String gameVersion,
+                                @Nullable Category category, int pageOffset, int pageSize,
+                                String searchFilter, SortType sortType, SortOrder sortOrder,
+                                @Nullable ModLoaderType modLoader) throws IOException {
+        return search(downloadProvider, gameVersion, category, pageOffset, pageSize,
+                searchFilter, sortType, sortOrder);
+    }
 
     Optional<RemoteAddon.Version> getRemoteVersionByLocalFile(Path file) throws IOException;
 

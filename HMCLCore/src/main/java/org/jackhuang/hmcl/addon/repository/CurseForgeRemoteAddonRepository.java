@@ -105,12 +105,37 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
         };
     }
 
+    /// Maps a loader to CurseForge's `modLoaderType` id.
+    ///
+    /// <p>The numbers come from CurseForge's `ModLoaderType` enum. A loader it has no id for maps
+    /// to `0`, which the caller reads as "do not filter" rather than "match nothing".</p>
+    ///
+    /// @param loader the loader
+    /// @return the id, or `0` when CurseForge cannot express it
+    private static int toCurseForgeLoader(ModLoaderType loader) {
+        return switch (loader) {
+            case FORGE -> 1;
+            case LITE_LOADER -> 3;
+            case FABRIC -> 4;
+            case QUILT -> 5;
+            case NEO_FORGE -> 6;
+            // CurseForge has no separate id for Cleanroom or Legacy Fabric, and UNKNOWN means
+            // "no preference", which must not narrow anything.
+            case CLEANROOM, LEGACY_FABRIC, UNKNOWN -> 0;
+        };
+    }
+
     private int calculateTotalPages(Response<List<CurseAddon>> response, int pageSize) {
         return (int) Math.ceil((double) Math.min(response.pagination.totalCount, 10000) / pageSize);
     }
 
     @Override
     public SearchResult search(DownloadProvider downloadProvider, String gameVersion, @Nullable RemoteAddonRepository.Category category, int pageOffset, int pageSize, String searchFilter, SortType sortType, SortOrder sortOrder) throws IOException {
+        return search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sortType, sortOrder, null);
+    }
+
+    @Override
+    public SearchResult search(DownloadProvider downloadProvider, String gameVersion, @Nullable RemoteAddonRepository.Category category, int pageOffset, int pageSize, String searchFilter, SortType sortType, SortOrder sortOrder, @Nullable ModLoaderType modLoader) throws IOException {
         SEMAPHORE.acquireUninterruptibly();
         try {
             int categoryId = 0;
@@ -125,6 +150,14 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
                 query.put("categoryId", Integer.toString(categoryId));
             query.put("gameVersion", gameVersion);
             query.put("searchFilter", searchFilter);
+            // CurseForge filters by loader server-side through `modLoaderType`, whose values are
+            // the ModLoaderType ids used by its own API. Without it the result set mixes every
+            // loader, which is the main reason browsing mods here felt unusable.
+            if (modLoader != null) {
+                int loaderType = toCurseForgeLoader(modLoader);
+                if (loaderType > 0)
+                    query.put("modLoaderType", Integer.toString(loaderType));
+            }
             query.put("sortField", Integer.toString(toModsSearchSortField(sortType)));
             query.put("sortOrder", toSortOrder(sortOrder));
             query.put("index", Integer.toString(pageOffset * pageSize));

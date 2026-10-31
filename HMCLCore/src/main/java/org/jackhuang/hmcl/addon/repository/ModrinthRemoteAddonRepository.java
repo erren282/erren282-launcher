@@ -201,6 +201,11 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
 
     @Override
     public SearchResult search(DownloadProvider downloadProvider, String gameVersion, @Nullable RemoteAddonRepository.Category category, int pageOffset, int pageSize, String searchFilter, SortType sort, SortOrder sortOrder) throws IOException {
+        return search(downloadProvider, gameVersion, category, pageOffset, pageSize, searchFilter, sort, sortOrder, null);
+    }
+
+    @Override
+    public SearchResult search(DownloadProvider downloadProvider, String gameVersion, @Nullable RemoteAddonRepository.Category category, int pageOffset, int pageSize, String searchFilter, SortType sort, SortOrder sortOrder, @Nullable ModLoaderType modLoader) throws IOException {
         SEMAPHORE.acquireUninterruptibly();
         try {
             List<List<String>> facets = new ArrayList<>();
@@ -210,6 +215,14 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
             }
             if (category != null && StringUtils.isNotBlank(category.id())) {
                 facets.add(Collections.singletonList("categories:" + category.id()));
+            }
+            // The loader is a facet like any other. Modrinth treats several values inside one
+            // facet group as OR and separate groups as AND, which is exactly the wanted behaviour:
+            // "this loader" combined with the version and category constraints.
+            if (modLoader != null) {
+                String facetName = toModrinthLoader(modLoader);
+                if (facetName != null)
+                    facets.add(Collections.singletonList("categories:" + facetName));
             }
             Map<String, String> query = mapOf(
                     pair("query", searchFilter),
@@ -247,6 +260,28 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
         } finally {
             SEMAPHORE.release();
         }
+    }
+
+    /// Maps a loader to the Modrinth category name used to filter by it.
+    ///
+    /// <p>Modrinth models loaders as ordinary categories, so restricting a search to one loader is
+    /// the same operation as selecting its category. Loaders Modrinth has no name for map to
+    /// `null`, which leaves the search unfiltered rather than returning nothing.</p>
+    ///
+    /// @param loader the loader
+    /// @return the category name, or `null` when Modrinth cannot express it
+    private static @Nullable String toModrinthLoader(ModLoaderType loader) {
+        return switch (loader) {
+            case FABRIC -> "fabric";
+            case FORGE -> "forge";
+            case NEO_FORGE -> "neoforge";
+            case QUILT -> "quilt";
+            case LITE_LOADER -> "liteloader";
+            case LEGACY_FABRIC -> "legacy-fabric";
+            // Cleanroom runs Forge mods and has no Modrinth category of its own.
+            case CLEANROOM -> null;
+            case UNKNOWN -> null;
+        };
     }
 
     @Override

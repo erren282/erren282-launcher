@@ -42,6 +42,7 @@ import org.jackhuang.hmcl.game.HMCLGameRepository;
 import org.jackhuang.hmcl.game.Version;
 import org.jackhuang.hmcl.addon.RemoteAddon;
 import org.jackhuang.hmcl.addon.RemoteAddonRepository;
+import org.jackhuang.hmcl.addon.mod.ModLoaderType;
 import org.jackhuang.hmcl.addon.repository.ModrinthRemoteAddonRepository;
 import org.jackhuang.hmcl.setting.DownloadProviders;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -84,6 +85,14 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
     private final ObservableList<Node> actions = FXCollections.observableArrayList();
     protected final ListProperty<String> downloadSources = new SimpleListProperty<>(this, "downloadSources", FXCollections.observableArrayList());
     protected final StringProperty downloadSource = new SimpleStringProperty();
+
+    /// The mod loader the list is filtered to, or `null` for every loader.
+    ///
+    /// <p>Only offered for mods and modpacks: resource packs and shaders are loader-agnostic, and
+    /// filtering them by loader would just empty the page.</p>
+    protected final ObjectProperty<@Nullable ModLoaderType> selectedModLoader =
+            new SimpleObjectProperty<>(this, "selectedModLoader");
+
     private final WeakListenerHolder listenerHolder = new WeakListenerHolder();
     private int searchID = 0;
     protected RemoteAddonRepository repository;
@@ -159,6 +168,10 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
     }
 
     private void search(String userGameVersion, RemoteAddonRepository.Category category, int pageOffset, String searchFilter, RemoteAddonRepository.SortType sort) {
+        search(userGameVersion, category, pageOffset, searchFilter, sort, selectedModLoader.get());
+    }
+
+    private void search(String userGameVersion, RemoteAddonRepository.Category category, int pageOffset, String searchFilter, RemoteAddonRepository.SortType sort, @Nullable ModLoaderType modLoader) {
         retrySearch = null;
         setLoading(true);
         setFailed(false);
@@ -174,7 +187,7 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                         : "";
             }
         }).thenApplyAsync(
-                gameVersion -> repository.search(downloadProvider, gameVersion, category, pageOffset, 50, searchFilter, sort, RemoteAddonRepository.SortOrder.DESC)
+                gameVersion -> repository.search(downloadProvider, gameVersion, category, pageOffset, 50, searchFilter, sort, RemoteAddonRepository.SortOrder.DESC, modLoader)
         ).whenComplete(Schedulers.javafx(), (result, exception) -> {
             if (searchID != currentSearchID) {
                 return;
@@ -188,13 +201,40 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
             } else {
                 failed.set(true);
                 pageCount.set(-1);
-                retrySearch = () -> search(userGameVersion, category, pageOffset, searchFilter, sort);
+                retrySearch = () -> search(userGameVersion, category, pageOffset, searchFilter, sort, modLoader);
             }
         }).executor(true);
     }
 
-    protected String getLocalizedCategory(String category, Object self) {
-        return repository instanceof ModrinthRemoteAddonRepository
+    /// Returns whether a section can be filtered by mod loader.
+    ///
+    /// <p>Mods and modpacks are inherently loader-specific; resource packs and shaders are not, so
+    /// offering the filter there would only produce empty results.</p>
+    ///
+    /// @param type the section type
+    /// @return whether the loader filter applies
+    private static boolean supportsModLoaderFilter(RemoteAddonRepository.Type type) {
+        return type == RemoteAddonRepository.Type.MOD || type == RemoteAddonRepository.Type.MODPACK;
+    }
+
+    /// Returns the display name of a mod loader.
+    ///
+    /// @param loader the loader
+    /// @return the name shown in the combo box
+    private static String loaderDisplayName(ModLoaderType loader) {
+        return switch (loader) {
+            case FORGE -> "Forge";
+            case CLEANROOM -> "Cleanroom";
+            case NEO_FORGE -> "NeoForge";
+            case FABRIC -> "Fabric";
+            case QUILT -> "Quilt";
+            case LITE_LOADER -> "LiteLoader";
+            case LEGACY_FABRIC -> "Legacy Fabric";
+            case UNKNOWN -> "未知";
+        };
+    }
+
+    protected String getLocalizedCategory(String category, Object self) {        return repository instanceof ModrinthRemoteAddonRepository
                 ? i18n("modrinth.category." + category)
                 : i18n("curse.category." + category);
     }
@@ -375,6 +415,25 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                 sortComboBox.getSelectionModel().select(0);
                 searchPane.addRow(rowIndex++, new Label(i18n("addon.category")), categoryStackPane, new Label(i18n("search.sort")), sortStackPane);
 
+                // The loader filter only makes sense for mods and modpacks. Resource packs and
+                // shaders work with every loader, so the row is left out entirely rather than
+                // shown disabled.
+                if (supportsModLoaderFilter(getSkinnable().repository.getType())) {
+                    StackPane modLoaderStackPane = new StackPane();
+                    JFXComboBox<@Nullable ModLoaderType> modLoaderComboBox = new JFXComboBox<>();
+                    modLoaderStackPane.getChildren().setAll(modLoaderComboBox);
+                    modLoaderComboBox.prefWidthProperty().bind(modLoaderStackPane.widthProperty());
+                    modLoaderComboBox.getStyleClass().add("fit-width");
+                    modLoaderComboBox.getItems().add(null);
+                    modLoaderComboBox.getItems().addAll(ModLoaderType.values());
+                    modLoaderComboBox.setConverter(stringConverter(loader -> loader == null
+                            ? "全部加载器"
+                            : loaderDisplayName(loader)));
+                    modLoaderComboBox.getSelectionModel().select(0);
+                    selectedItemPropertyFor(modLoaderComboBox).bindBidirectional(control.selectedModLoader);
+                    searchPane.addRow(rowIndex++, new Label("模组加载器"), modLoaderStackPane);
+                }
+
                 IntegerProperty filterID = new SimpleIntegerProperty(this, "Filter ID", 0);
                 IntegerProperty currentFilterID = new SimpleIntegerProperty(this, "Current Filter ID", -1);
                 EventHandler<ActionEvent> searchAction = e -> {
@@ -401,7 +460,8 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                         gameVersionField.getSelectionModel().selectedItemProperty(),
                         categoryComboBox.getSelectionModel().selectedItemProperty(),
                         nameField.textProperty(),
-                        sortComboBox.getSelectionModel().selectedItemProperty()
+                        sortComboBox.getSelectionModel().selectedItemProperty(),
+                        control.selectedModLoader
                 ));
 
                 HBox actionsBox = new HBox(8);
