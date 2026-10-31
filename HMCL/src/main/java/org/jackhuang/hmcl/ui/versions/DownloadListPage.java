@@ -282,7 +282,25 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
     }
 
     protected boolean shouldDisplayCategory(String category) {
-        return !"minecraft".equals(category);
+        if ("minecraft".equals(category))
+            return false;
+        // Modrinth lists loaders among the categories, and they are already shown as their own
+        // tags in front of the rest. Leaving them in the category list printed every loader twice.
+        return !isLoaderCategory(category);
+    }
+
+    /// Returns whether a category name denotes a mod loader.
+    ///
+    /// @param category the category name
+    /// @return whether it is a loader tag
+    private static boolean isLoaderCategory(String category) {
+        if (category == null)
+            return false;
+        return switch (category.toLowerCase(Locale.ROOT)) {
+            case "fabric", "forge", "neoforge", "quilt", "liteloader",
+                 "legacy-fabric", "cleanroom", "rift", "modloader", "nilloader" -> true;
+            default -> false;
+        };
     }
 
     private String getLocalizedCategoryIndent(ModDownloadListPageSkin.CategoryIndented category) {

@@ -17,6 +17,7 @@
  */
 package org.jackhuang.hmcl.addon.repository;
 
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import org.jackhuang.hmcl.addon.RemoteAddon;
 import org.jackhuang.hmcl.addon.RemoteAddonRepository;
@@ -483,7 +484,11 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
                              List<CurseForgeRemoteAddonRepository.Category> categories,
                              int classId, List<Author> authors, Logo logo, int mainFileId,
                              List<LatestFile> latestFiles,
-                             List<LatestFileIndex> latestFileIndices, Instant dateCreated, Instant dateModified,
+                             // CurseForge spells this "latestFilesIndexes"; without the explicit
+                             // name Gson cannot match the record component and the list is always
+                             // null, which is why the loader tags never appeared for this source.
+                             @SerializedName("latestFilesIndexes") List<LatestFileIndex> latestFileIndices,
+                             Instant dateCreated, Instant dateModified,
                              Instant dateReleased, boolean allowModDistribution, int gamePopularityRank,
                              boolean isAvailable, int thumbsUpCount) implements RemoteAddon.IMod {
         public static final Map<Integer, RemoteAddon.DependencyType> RELATION_TYPE = mapOf(
