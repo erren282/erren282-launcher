@@ -57,6 +57,50 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     private static final String PREFIX = "https://api.curseforge.com";
     private static final Semaphore SEMAPHORE = new Semaphore(16);
 
+    /// The MCIM mirror's CurseForge entry point.
+    ///
+    /// <p>It serves the same JSON as the official API and — unlike the official host — needs no
+    /// API key for reads, which is what makes CurseForge usable without asking the user for one.
+    /// A configured key is still sent when present, so a premium key keeps working.</p>
+    private static final String MIRROR_PREFIX = "https://mod.mcimirror.top/curseforge";
+
+    /// Whether to fall back to the mirror.
+    ///
+    /// <p>Mutable rather than `final` so it can be disabled at runtime:
+    /// `-Dhmcl.curseforge.mirror=false`, or by a plugin.</p>
+    private static volatile boolean mirrorEnabled = !"false".equalsIgnoreCase(
+            System.getProperty("hmcl.curseforge.mirror", "true"));
+
+    /// The API bases to try, most preferred first.
+    ///
+    /// <p>Ordering depends on whether a key is configured. With a key the official API is both
+    /// correct and fast, so it goes first. Without one the official host answers 403, and the
+    /// mirror — which needs no key — is the only way to read anything, so it goes first and the
+    /// official host stays as a fallback in case the mirror is down.</p>
+    ///
+    /// @return the bases
+    static List<String> apiBases() {
+        if (!mirrorEnabled)
+            return List.of(PREFIX);
+        if (!apiKey.isEmpty())
+            return List.of(PREFIX, MIRROR_PREFIX);
+        return List.of(MIRROR_PREFIX, PREFIX);
+    }
+
+    /// Turns the mirror on or off at runtime.
+    ///
+    /// @param enabled whether to use it
+    public static void setMirrorEnabled(boolean enabled) {
+        mirrorEnabled = enabled;
+    }
+
+    /// Whether the mirror is in use.
+    ///
+    /// @return whether it is enabled
+    public static boolean isMirrorEnabled() {
+        return mirrorEnabled;
+    }
+
     /// The CurseForge API key in effect, or an empty string when none is configured.
     ///
     /// <p>Deliberately not `final`: a key can be supplied after start-up (the bundled
@@ -95,14 +139,36 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
 
     private static <R extends HttpRequest> R withApiKey(R request) {
         String key = apiKey;
-        if (request.getUrl().startsWith(PREFIX) && !key.isEmpty()) {
+        if (!key.isEmpty()) {
             request.header("X-API-KEY", key);
         }
         return request;
     }
 
+    /// Whether the CurseForge source can be used.
+    ///
+    /// <p>True when the mirror is enabled: it answers reads without a key, so the source is usable
+    /// out of the box instead of hidden until the user finds an API key.</p>
+    ///
+    /// @return whether the source is available
     public static boolean isAvailable() {
-        return !apiKey.isEmpty();
+        return !apiKey.isEmpty() || mirrorEnabled;
+    }
+
+    /// Builds the candidate URLs for an API path.
+    ///
+    /// <p>Each base is passed through the launcher's `DownloadProvider` so its own mirroring still
+    /// applies on top.</p>
+    ///
+    /// @param downloadProvider the provider
+    /// @param path             the path beginning with `/v1/...`
+    /// @return the candidates, most preferred first
+    private static List<URI> apiCandidates(DownloadProvider downloadProvider, String path) {
+        java.util.LinkedHashSet<URI> result = new java.util.LinkedHashSet<>();
+        for (String base : apiBases()) {
+            result.addAll(downloadProvider.injectURLWithCandidates(base + path));
+        }
+        return List.copyOf(result);
     }
 
     private final Type type;
@@ -225,7 +291,8 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
             Response<List<CurseAddon>> response = null;
 
             IOException exception = null;
-            List<URI> candidates = downloadProvider.injectURLWithCandidates(NetworkUtils.withQuery(PREFIX + "/v1/mods/search", query));
+            List<URI> candidates = apiCandidates(downloadProvider,
+                    NetworkUtils.withQuery("/v1/mods/search", query));
             for (URI candidate : candidates) {
                 LOG.info("Fetching " + candidate);
                 try {
@@ -357,12 +424,44 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
         }
     }
 
+    /// Fetches a GET endpoint through the candidate bases, first success wins.
+    ///
+    /// <p>All reads go through the mirror first, which keeps working without an API key.</p>
+    ///
+    /// @param downloadProvider the provider
+    /// @param path             the path beginning with `/v1/...`
+    /// @param query            the query parameters, or `null`
+    /// @param type             the response type
+    /// @param <T>              the payload type
+    /// @return the response
+    /// @throws IOException when every candidate failed
+    private static <T> Response<T> getFirstAvailable(DownloadProvider downloadProvider, String path,
+                                                     @Nullable Map<String, String> query,
+                                                     com.google.gson.reflect.TypeToken<Response<T>> type) throws IOException {
+        String withQuery = query == null ? path : NetworkUtils.withQuery(path, query);
+        List<URI> candidates = apiCandidates(downloadProvider, withQuery);
+
+        IOException failure = null;
+        for (URI candidate : candidates) {
+            try {
+                LOG.info("Fetching " + candidate);
+                return withApiKey(HttpRequest.GET(candidate.toString())).getJson(type);
+            } catch (IOException e) {
+                LOG.warning("Failed to fetch " + candidate, e);
+                if (failure == null)
+                    failure = new IOException("Failed to fetch " + path);
+                failure.addSuppressed(e);
+            }
+        }
+        throw failure != null ? failure : new IOException("No candidates found");
+    }
+
     @Override
     public RemoteAddon getModById(DownloadProvider downloadProvider, String id) throws IOException {
         SEMAPHORE.acquireUninterruptibly();
         try {
-            Response<CurseAddon> response = withApiKey(HttpRequest.GET(PREFIX + "/v1/mods/" + id))
-                    .getJson(Response.typeOf(CurseAddon.class));
+            Response<CurseAddon> response = getFirstAvailable(downloadProvider, "/v1/mods/" + id, null,
+                    Response.typeOf(CurseAddon.class));
             return response.data.toMod(type);
         } finally {
             SEMAPHORE.release();
@@ -398,8 +497,26 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     public Stream<RemoteAddonRepository.Category> getCategories() throws IOException {
         SEMAPHORE.acquireUninterruptibly();
         try {
-            Response<List<Category>> categories = withApiKey(HttpRequest.GET(PREFIX + "/v1/categories", pair("gameId", "432")))
-                    .getJson(Response.typeOf(listTypeOf(Category.class)));
+            // No `DownloadProvider` is available here, so the bases are tried directly. The
+            // mirror answers without a key, which is what lets this list load at all when the
+            // user has not configured one.
+            Response<List<Category>> categories = null;
+            IOException failure = null;
+            for (String base : apiBases()) {
+                try {
+                    categories = withApiKey(HttpRequest.GET(base + "/v1/categories", pair("gameId", "432")))
+                            .getJson(Response.typeOf(listTypeOf(Category.class)));
+                    break;
+                } catch (IOException e) {
+                    LOG.warning("Failed to fetch categories from " + base, e);
+                    if (failure == null)
+                        failure = new IOException("Failed to fetch categories");
+                    failure.addSuppressed(e);
+                }
+            }
+            if (categories == null)
+                throw failure != null ? failure : new IOException("No candidates found");
+
             return reorganizeCategories(categories.data(), section).stream().map(Category::toCategory);
         } finally {
             SEMAPHORE.release();
