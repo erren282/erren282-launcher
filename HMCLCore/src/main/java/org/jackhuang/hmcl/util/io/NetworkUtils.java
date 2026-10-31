@@ -164,18 +164,15 @@ public final class NetworkUtils {
         }
     }
 
-    private static final List<Pair<String, String>> API_KEYS;
-
-    static {
-        if (CurseForgeRemoteAddonRepository.API_KEY.isEmpty()) {
-            API_KEYS = List.of();
-        } else {
-            API_KEYS = List.of(
-                    pair("api.curseforge.com", CurseForgeRemoteAddonRepository.API_KEY),
-                    pair("forgecdn.net", CurseForgeRemoteAddonRepository.API_KEY)
-            );
-        }
-    }
+    /// Hosts that expect the CurseForge key.
+    ///
+    /// <p>Only the host suffixes are fixed here; the key itself is read from
+    /// [CurseForgeRemoteAddonRepository#API_KEY] on every request instead of being snapshotted at
+    /// class-initialisation time. The snapshot was what made a key installed at runtime useless:
+    /// `API_KEY` changed, `isAvailable()` turned true so CurseForge appeared in the list, but this
+    /// table had already been built as empty during start-up and requests went out without the
+    /// header — CurseForge answered 403 for a perfectly valid key.</p>
+    private static final List<String> API_KEY_HOSTS = List.of("api.curseforge.com", "forgecdn.net");
 
     private static boolean matchDomainSuffix(String domain, String suffix) {
         return domain.endsWith(suffix)
@@ -194,10 +191,14 @@ public final class NetworkUtils {
         if (host == null || host.isEmpty())
             return;
 
-        for (Pair<String, String> pair : API_KEYS) {
-            String hostSuffix = pair.getKey();
+        // Read at request time so a key installed by a plugin takes effect immediately.
+        String apiKey = CurseForgeRemoteAddonRepository.getApiKey();
+        if (apiKey == null || apiKey.isEmpty())
+            return;
+
+        for (String hostSuffix : API_KEY_HOSTS) {
             if (matchDomainSuffix(host, hostSuffix)) {
-                connection.addRequestProperty("x-api-key", pair.getValue());
+                connection.addRequestProperty("x-api-key", apiKey);
                 return;
             }
         }

@@ -56,19 +56,52 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     private static final String PREFIX = "https://api.curseforge.com";
     private static final Semaphore SEMAPHORE = new Semaphore(16);
 
-    public static final String API_KEY = System.getProperty("hmcl.curseforge.apikey", JarUtils.getAttribute("hmcl.curseforge.apikey", ""));
+    /// The CurseForge API key in effect, or an empty string when none is configured.
+    ///
+    /// <p>Deliberately not `final`: a key can be supplied after start-up (the bundled
+    /// "更好的下载" plugin does exactly that). Writes have to be seen by readers on other threads,
+    /// because downloads run off the JavaFX thread and a stale value there means a request goes
+    /// out without the header and CurseForge answers 403.</p>
+    private static volatile String apiKey =
+            System.getProperty("hmcl.curseforge.apikey", JarUtils.getAttribute("hmcl.curseforge.apikey", ""));
+
+    /// Returns the CurseForge API key in effect.
+    ///
+    /// @return the key, or an empty string
+    public static String getApiKey() {
+        return apiKey;
+    }
+
+    /// Installs a CurseForge API key for the rest of the session.
+    ///
+    /// <p>This is the supported way for a plugin to enable CurseForge: writing the old `final`
+    /// field reflectively is unreliable on modern JVMs, and the value also has to be visible to
+    /// the network layer.</p>
+    ///
+    /// @param key the key, or `null` to clear it
+    public static void setApiKey(@Nullable String key) {
+        apiKey = key == null ? "" : key;
+    }
+
+    /// Backwards-compatible accessor for code that read the old constant.
+    ///
+    /// @return the key, or an empty string
+    public static String API_KEY() {
+        return apiKey;
+    }
 
     private static final int WORD_PERFECT_MATCH_WEIGHT = 5;
 
     private static <R extends HttpRequest> R withApiKey(R request) {
-        if (request.getUrl().startsWith(PREFIX) && !API_KEY.isEmpty()) {
-            request.header("X-API-KEY", API_KEY);
+        String key = apiKey;
+        if (request.getUrl().startsWith(PREFIX) && !key.isEmpty()) {
+            request.header("X-API-KEY", key);
         }
         return request;
     }
 
     public static boolean isAvailable() {
-        return !API_KEY.isEmpty();
+        return !apiKey.isEmpty();
     }
 
     private final Type type;
@@ -105,8 +138,33 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
         };
     }
 
-    /// Maps a loader to CurseForge's `modLoaderType` id.
+    /// Extracts the supported loaders from a project's latest file indexes.
     ///
+    /// @param indexes the latest file indexes, or `null`
+    /// @return the loaders, possibly empty
+    private static List<ModLoaderType> detectLoaders(@Nullable List<CurseAddon.LatestFileIndex> indexes) {
+        if (indexes == null || indexes.isEmpty())
+            return List.of();
+
+        List<ModLoaderType> loaders = new ArrayList<>();
+        for (CurseAddon.LatestFileIndex index : indexes) {
+            if (index == null)
+                continue;
+            ModLoaderType loader = switch (index.modLoader()) {
+                case 1 -> ModLoaderType.FORGE;
+                case 3 -> ModLoaderType.LITE_LOADER;
+                case 4 -> ModLoaderType.FABRIC;
+                case 5 -> ModLoaderType.QUILT;
+                case 6 -> ModLoaderType.NEO_FORGE;
+                default -> null;
+            };
+            if (loader != null && !loaders.contains(loader))
+                loaders.add(loader);
+        }
+        return List.copyOf(loaders);
+    }
+
+    /// Maps a loader to CurseForge's `modLoaderType` id.    ///
     /// <p>The numbers come from CurseForge's `ModLoaderType` enum. A loader it has no id for maps
     /// to `0`, which the caller reads as "do not filter" rather than "match nothing".</p>
     ///
@@ -474,7 +532,10 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
                     links.websiteUrl,
                     iconUrl,
                     this,
-                    type
+                    type,
+                    // The search response carries the loaders each latest file targets, which is
+                    // the only loader information available without a per-project request.
+                    detectLoaders(latestFileIndices)
             );
         }
 

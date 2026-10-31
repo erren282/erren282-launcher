@@ -206,6 +206,64 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
         }).executor(true);
     }
 
+    /// The choices offered by the mod loader filter.
+    ///
+    /// <p>Only the loaders the launcher can actually install mods for are listed. `ALL` means "no
+    /// loader restriction" and therefore still lists mods that only support other loaders.</p>
+    protected enum ModLoaderChoice {
+        ALL(null, "全部加载器"),
+        FABRIC(ModLoaderType.FABRIC, "Fabric"),
+        FORGE(ModLoaderType.FORGE, "Forge"),
+        NEO_FORGE(ModLoaderType.NEO_FORGE, "NeoForge"),
+        QUILT(ModLoaderType.QUILT, "Quilt");
+
+        private final @Nullable ModLoaderType loader;
+        private final String label;
+
+        ModLoaderChoice(@Nullable ModLoaderType loader, String label) {
+            this.loader = loader;
+            this.label = label;
+        }
+
+        /// Returns the loader to filter by.
+        ///
+        /// @return the loader, or `null` for no restriction
+        public @Nullable ModLoaderType loader() {
+            return loader;
+        }
+
+        /// Returns the name shown in the combo box.
+        ///
+        /// @return the label
+        public String displayName() {
+            return label;
+        }
+
+        /// Returns every selectable choice, with `ALL` first.
+        ///
+        /// @return the choices
+        public static List<ModLoaderChoice> selectable() {
+            return List.of(values());
+        }
+    }
+
+    /// Returns the short display name of a mod loader.
+    ///
+    /// @param loader the loader
+    /// @return the name shown on a card
+    private static String loaderName(ModLoaderType loader) {
+        return switch (loader) {
+            case FABRIC -> "Fabric";
+            case FORGE -> "Forge";
+            case NEO_FORGE -> "NeoForge";
+            case QUILT -> "Quilt";
+            case LITE_LOADER -> "LiteLoader";
+            case LEGACY_FABRIC -> "Legacy Fabric";
+            case CLEANROOM -> "Cleanroom";
+            case UNKNOWN -> "未知";
+        };
+    }
+
     /// Returns whether a section can be filtered by mod loader.
     ///
     /// <p>Mods and modpacks are inherently loader-specific; resource packs and shaders are not, so
@@ -217,24 +275,8 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
         return type == RemoteAddonRepository.Type.MOD || type == RemoteAddonRepository.Type.MODPACK;
     }
 
-    /// Returns the display name of a mod loader.
-    ///
-    /// @param loader the loader
-    /// @return the name shown in the combo box
-    private static String loaderDisplayName(ModLoaderType loader) {
-        return switch (loader) {
-            case FORGE -> "Forge";
-            case CLEANROOM -> "Cleanroom";
-            case NEO_FORGE -> "NeoForge";
-            case FABRIC -> "Fabric";
-            case QUILT -> "Quilt";
-            case LITE_LOADER -> "LiteLoader";
-            case LEGACY_FABRIC -> "Legacy Fabric";
-            case UNKNOWN -> "未知";
-        };
-    }
-
-    protected String getLocalizedCategory(String category, Object self) {        return repository instanceof ModrinthRemoteAddonRepository
+    protected String getLocalizedCategory(String category, Object self) {
+        return repository instanceof ModrinthRemoteAddonRepository
                 ? i18n("modrinth.category." + category)
                 : i18n("curse.category." + category);
     }
@@ -420,17 +462,20 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                 // shown disabled.
                 if (supportsModLoaderFilter(getSkinnable().repository.getType())) {
                     StackPane modLoaderStackPane = new StackPane();
-                    JFXComboBox<@Nullable ModLoaderType> modLoaderComboBox = new JFXComboBox<>();
+                    // A `ModLoaderChoice` rather than a nullable `ModLoaderType`: the launcher's
+                    // `stringConverter` renders a `null` item as an empty string, which is why the
+                    // "all loaders" entry showed up blank with a second blank row beneath it. An
+                    // explicit ALL constant keeps every entry a non-null value with a real label.
+                    JFXComboBox<ModLoaderChoice> modLoaderComboBox = new JFXComboBox<>();
                     modLoaderStackPane.getChildren().setAll(modLoaderComboBox);
                     modLoaderComboBox.prefWidthProperty().bind(modLoaderStackPane.widthProperty());
                     modLoaderComboBox.getStyleClass().add("fit-width");
-                    modLoaderComboBox.getItems().add(null);
-                    modLoaderComboBox.getItems().addAll(ModLoaderType.values());
-                    modLoaderComboBox.setConverter(stringConverter(loader -> loader == null
-                            ? "全部加载器"
-                            : loaderDisplayName(loader)));
+                    modLoaderComboBox.getItems().setAll(ModLoaderChoice.selectable());
+                    modLoaderComboBox.setConverter(stringConverter(ModLoaderChoice::displayName));
                     modLoaderComboBox.getSelectionModel().select(0);
-                    selectedItemPropertyFor(modLoaderComboBox).bindBidirectional(control.selectedModLoader);
+                    modLoaderComboBox.getSelectionModel().selectedItemProperty().addListener(
+                            (observable, oldValue, newValue) -> control.selectedModLoader.set(
+                                    newValue == null ? null : newValue.loader()));
                     searchPane.addRow(rowIndex++, new Label("模组加载器"), modLoaderStackPane);
                 }
 
@@ -652,6 +697,10 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                             }
                             content.setSubtitle(description);
                             content.getTags().clear();
+                            // Loaders come first: for a mod they are the decisive piece of
+                            // information, and the category tags would otherwise bury them.
+                            for (ModLoaderType loader : item.loaders())
+                                content.addTag(loaderName(loader));
                             for (String category : item.categories()) {
                                 if (getSkinnable().shouldDisplayCategory(category))
                                     content.addTag(getSkinnable().getLocalizedCategory(category, null));

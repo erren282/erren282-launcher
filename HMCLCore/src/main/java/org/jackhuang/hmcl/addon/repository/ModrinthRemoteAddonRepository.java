@@ -589,9 +589,39 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
                     String.format("https://modrinth.com/%s/%s", projectType, projectId),
                     iconUrl,
                     this,
-                    type
+                    type,
+                    // Modrinth lists loaders as ordinary categories, so the search response already
+                    // carries what the card needs to show which loaders a project supports.
+                    detectLoaders(categories)
             );
         }
+    }
+
+    /// Extracts the supported loaders from a Modrinth project's category list.
+    ///
+    /// @param categories the category tags
+    /// @return the loaders, possibly empty
+    private static List<ModLoaderType> detectLoaders(@Nullable List<String> categories) {
+        if (categories == null || categories.isEmpty())
+            return List.of();
+
+        List<ModLoaderType> loaders = new ArrayList<>();
+        for (String category : categories) {
+            if (category == null)
+                continue;
+            ModLoaderType loader = switch (category.toLowerCase(Locale.ROOT)) {
+                case "fabric" -> ModLoaderType.FABRIC;
+                case "forge" -> ModLoaderType.FORGE;
+                case "neoforge" -> ModLoaderType.NEO_FORGE;
+                case "quilt" -> ModLoaderType.QUILT;
+                case "liteloader" -> ModLoaderType.LITE_LOADER;
+                case "legacy-fabric" -> ModLoaderType.LEGACY_FABRIC;
+                default -> null;
+            };
+            if (loader != null && !loaders.contains(loader))
+                loaders.add(loader);
+        }
+        return List.copyOf(loaders);
     }
 
     public static class Response<T> {

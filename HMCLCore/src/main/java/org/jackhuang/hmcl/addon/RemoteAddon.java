@@ -32,7 +32,24 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 public record RemoteAddon(String slug, String author, String title, String description, List<String> categories,
-                          String pageUrl, String iconUrl, IMod data, RemoteAddonRepository.Type repoType) {
+                          String pageUrl, String iconUrl, IMod data, RemoteAddonRepository.Type repoType,
+                          List<ModLoaderType> loaders) {
+
+    /// Compatibility constructor for callers that have no loader information.
+    ///
+    /// @param slug        the project slug
+    /// @param author      the author
+    /// @param title       the display title
+    /// @param description the summary
+    /// @param categories  the category tags
+    /// @param pageUrl     the project page
+    /// @param iconUrl     the icon
+    /// @param data        the source-specific payload
+    /// @param repoType    the section the addon came from
+    public RemoteAddon(String slug, String author, String title, String description, List<String> categories,
+                       String pageUrl, String iconUrl, IMod data, RemoteAddonRepository.Type repoType) {
+        this(slug, author, title, description, categories, pageUrl, iconUrl, data, repoType, Collections.emptyList());
+    }
 
     public static final RemoteAddon BROKEN = new RemoteAddon("", "", "RemoteAddon.BROKEN", "", Collections.emptyList(), "", "", new IMod() {
         @Override
