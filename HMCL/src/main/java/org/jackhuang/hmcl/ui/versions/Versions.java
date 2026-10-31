@@ -147,6 +147,10 @@ public final class Versions {
                 return;
             }
 
+            // Every file of this install shares the name, so the download page folds them into a
+            // single modpack row instead of one row per mod.
+            org.jackhuang.hmcl.task.DownloadReporter.setModpackName(pending.name());
+
             Task<?> install = ModpackHelper.getInstallTask(repository, pending.archive(),
                             pending.name(), pending.modpack(), iconUrl)
                     .thenRunAsync(Schedulers.javafx(), () -> repository.setSelectedInstance(pending.name()));

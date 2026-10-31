@@ -109,6 +109,14 @@ public final class DownloadReporter {
         if (stage == null || stage.isBlank())
             return null;
 
+        // A modpack installs its files under `hmcl.modpack.download`. Those used to be left
+        // ungrouped, so a modpack with hundreds of mods produced hundreds of separate rows —
+        // which both buried everything else and made the download page unusable.
+        if (stage.startsWith("hmcl.modpack")) {
+            String name = currentModpack;
+            return name != null ? name : "modpack";
+        }
+
         if (!stage.startsWith("hmcl.install"))
             return null;
 
@@ -121,6 +129,18 @@ public final class DownloadReporter {
         }
 
         return currentVersion;
+    }
+
+    /// The name of the modpack currently being installed, when known.
+    ///
+    /// <p>Set by {@link #setModpackName(String)} so every file of one install shares a batch.</p>
+    private static volatile @Nullable String currentModpack;
+
+    /// Names the modpack being installed so its files group into one row.
+    ///
+    /// @param name the instance name, or `null` to clear it
+    public static void setModpackName(@Nullable String name) {
+        currentModpack = name;
     }
 
     /// Publishes a progress update.
