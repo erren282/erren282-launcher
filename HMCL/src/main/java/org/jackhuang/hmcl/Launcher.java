@@ -35,6 +35,7 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.jackhuang.hmcl.game.HMCLCacheRepository;
+import org.jackhuang.hmcl.plugin.BundledPlugins;
 import org.jackhuang.hmcl.plugin.PluginManager;
 import org.jackhuang.hmcl.setting.*;
 import org.jackhuang.hmcl.task.AsyncTaskExecutor;
@@ -111,7 +112,12 @@ public final class Launcher extends Application {
             }
 
             // load and enable plugins on a background thread; the UI reads the result when opened
-            Lang.thread(PluginManager::load, "Plugin Loading", true);
+            Lang.thread(() -> {
+                // Plugins shipped with the launcher are written out first, so a fresh install
+                // (or an updated launcher) has them on the very first start.
+                BundledPlugins.install(PluginManager.getPluginsDirectory());
+                PluginManager.load();
+            }, "Plugin Loading", true);
 
             // https://lapcatsoftware.com/articles/app-translocation.html
             if (OperatingSystem.CURRENT_OS == OperatingSystem.MACOS
