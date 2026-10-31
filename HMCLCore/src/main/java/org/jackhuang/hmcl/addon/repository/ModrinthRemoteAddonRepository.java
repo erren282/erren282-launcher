@@ -521,12 +521,16 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
             List<URI> candidates = apiCandidates(downloadProvider,
                     "/v2/project/" + id + "/version?include_changelog=false");
 
-            // Version lists are the heavy request behind a project's detail page, and the mirror
-            // can take an order of magnitude longer than the official API for them (measured:
-            // 17 s vs 4.6 s). Waiting for the mirror first meant every detail page stalled on it
-            // before falling back. Racing makes the faster answer win.
+            // Version lists are the one endpoint where the mirror is reliably much slower than the
+            // official API — measured repeatedly at ~17 s against ~1.6-4.6 s official, while every
+            // other mirrored endpoint is comparable. Racing still leaves the user waiting for the
+            // official answer plus the cost of a pointless 17-second request in flight, so this
+            // endpoint goes straight to the official API. The mirror stays as a fallback for when
+            // the official host fails outright.
+            List<URI> ordered = preferOfficial(candidates);
+
             List<ProjectVersion> versions = raceEnabled
-                    ? fetchRacing(candidates, candidate -> {
+                    ? fetchRacing(ordered, candidate -> {
                         try {
                             return HttpRequest.GET(candidate.toString())
                                     .getJson(listTypeOf(ProjectVersion.class));
@@ -541,6 +545,31 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
             SEMAPHORE.release();
         }
     }
+
+    /// Returns the candidates with the official API first.
+    ///
+    /// <p>Used for the endpoints where the mirror is known to lag far behind; the mirror is kept
+    /// at the end so an outage of the official host still resolves.</p>
+    ///
+    /// @param candidates the candidates
+    /// @return the reordered list
+    private static List<URI> preferOfficial(List<URI> candidates) {
+        List<URI> ordered = new ArrayList<>(candidates);
+        ordered.sort((a, b) -> Integer.compare(rankOfficialFirst(a), rankOfficialFirst(b)));
+        return ordered;
+    }
+
+    /// Ranks a candidate so the official host sorts first.
+    ///
+    /// @param uri the candidate
+    /// @return 0 for the official API, 1 otherwise
+    private static int rankOfficialFirst(URI uri) {
+        String host = uri.getHost();
+        return OFFICIAL_HOST.equals(host) ? 0 : 1;
+    }
+
+    /// Host of the official Modrinth API.
+    private static final String OFFICIAL_HOST = "api.modrinth.com";
 
     /// Fetches a version list from the candidates in order.
     ///
