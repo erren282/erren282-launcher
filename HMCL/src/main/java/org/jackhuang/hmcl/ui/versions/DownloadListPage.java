@@ -446,8 +446,17 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                 categoryComboBox.getSelectionModel().select(0);
                 categoryComboBox.setConverter(stringConverter(getSkinnable()::getLocalizedCategoryIndent));
                 FXUtils.onChangeAndOperate(getSkinnable().downloadSource, downloadSource -> {
-                    categoryComboBox.getItems().setAll(CategoryIndented.ALL);
-                    categoryComboBox.getSelectionModel().select(0);
+                    // Detach the action handler while the items are replaced: restoring the
+                    // selection would otherwise fire a redundant full search right after the one
+                    // the page already started, doubling the wait on every open.
+                    EventHandler<ActionEvent> onAction = categoryComboBox.getOnAction();
+                    categoryComboBox.setOnAction(null);
+                    try {
+                        categoryComboBox.getItems().setAll(CategoryIndented.ALL);
+                        categoryComboBox.getSelectionModel().select(0);
+                    } finally {
+                        categoryComboBox.setOnAction(onAction);
+                    }
 
                     Task.supplyAsync(() -> getSkinnable().repository.getCategories())
                             .thenAcceptAsync(Schedulers.javafx(), categories -> {
@@ -460,8 +469,17 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
                                 for (RemoteAddonRepository.Category category : Lang.toIterable(categories)) {
                                     resolveCategory(category, 0, result);
                                 }
-                                categoryComboBox.getItems().setAll(result);
-                                categoryComboBox.getSelectionModel().select(0);
+
+                                // Same reason as above: filling the list must not look like the
+                                // user picking a category.
+                                EventHandler<ActionEvent> handler = categoryComboBox.getOnAction();
+                                categoryComboBox.setOnAction(null);
+                                try {
+                                    categoryComboBox.getItems().setAll(result);
+                                    categoryComboBox.getSelectionModel().select(0);
+                                } finally {
+                                    categoryComboBox.setOnAction(handler);
+                                }
                             }).start();
                 });
 
@@ -745,3 +763,4 @@ public class DownloadListPage extends Control implements DecoratorPage, VersionP
         }
     }
 }
+
