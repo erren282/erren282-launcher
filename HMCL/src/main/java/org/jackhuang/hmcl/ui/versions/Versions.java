@@ -51,6 +51,7 @@ import org.jackhuang.hmcl.util.TaskCancellationAction;
 import org.jackhuang.hmcl.util.io.CompressingUtils;
 import org.jackhuang.hmcl.util.io.FileUtils;
 import org.jackhuang.hmcl.util.platform.OperatingSystem;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.net.URI;
@@ -82,6 +83,33 @@ public final class Versions {
     }
 
     public static void downloadModpackImpl(DownloadProvider downloadProvider, HMCLGameRepository repository, String version, RemoteAddon mod, RemoteAddon.Version file) {
+        // Ask for the instance name before anything is downloaded. The manifest inside the archive
+        // is only readable after the download finishes, so the field is prefilled from the project
+        // name and the user can either keep it or type their own; leaving it untouched keeps the
+        // manifest's own name, which is what "use the original name" means here.
+        String suggested = StringUtils.isBlank(mod.title()) ? null : mod.title().trim();
+        Controllers.prompt(i18n("install.modpack"), (entered, handler) -> {
+            String chosen = entered == null ? "" : entered.trim();
+            if (chosen.isEmpty())
+                chosen = null;
+            if (chosen != null && repository.versionIdConflicts(chosen))
+                handler.reject(i18n("install.new_game.already_exists"));
+            else {
+                handler.resolve();
+                beginModpackDownload(downloadProvider, repository, mod, file, chosen);
+            }
+        }, suggested);
+    }
+
+    /// Downloads the archive and installs it under the requested name.
+    ///
+    /// @param downloadProvider the provider
+    /// @param repository       the target repository
+    /// @param mod              the project being installed
+    /// @param file             the chosen version
+    /// @param requestedName    the name the user typed, or `null` to keep the manifest's own
+    private static void beginModpackDownload(DownloadProvider downloadProvider, HMCLGameRepository repository,
+                                             RemoteAddon mod, RemoteAddon.Version file, @Nullable String requestedName) {
         Path modpack;
         List<URI> downloadURLs;
         try {
@@ -97,12 +125,9 @@ public final class Versions {
                 new FileDownloadTask(downloadURLs, modpack)
                         .whenComplete(Schedulers.javafx(), e -> {
                             if (e == null) {
-                                // Installing straight away: the archive already names itself and
-                                // carries its own manifest, so the confirmation page only asked the
-                                // user to press the same button a second time. The name comes from
-                                // the manifest, falling back to the archive name, and a numeric
-                                // suffix keeps an existing version from being overwritten.
-                                installModpackDirectly(repository, modpack, mod.iconUrl());
+                                // Installing straight away: the archive carries its own manifest, so
+                                // the old confirmation page only asked for the same click twice.
+                                installModpackDirectly(repository, modpack, mod.iconUrl(), requestedName);
                             } else if (e instanceof CancellationException) {
                                 Controllers.showToast(i18n("message.cancelled"));
                             } else {
@@ -121,14 +146,19 @@ public final class Versions {
     /// <p>The archive is inspected off the FX thread, then the install runs as an ordinary task
     /// dialog so progress and cancellation behave exactly like a manual install.</p>
     ///
-    /// @param repository the target repository
-    /// @param archive    the downloaded archive
-    /// @param iconUrl    the icon to embed, or `null`
-    private static void installModpackDirectly(HMCLGameRepository repository, Path archive, String iconUrl) {
+    /// @param repository    the target repository
+    /// @param archive       the downloaded archive
+    /// @param iconUrl       the icon to embed, or `null`
+    /// @param requestedName the name the user typed, or `null` to keep the manifest's own
+    private static void installModpackDirectly(HMCLGameRepository repository, Path archive, String iconUrl,
+                                               @Nullable String requestedName) {
         Task.supplyAsync(Schedulers.io(), () -> {
             Charset charset = CompressingUtils.findSuitableEncoding(archive);
             Modpack modpack = ModpackHelper.readModpackManifest(archive, charset);
-            String name = uniqueVersionName(repository, modpack.getName());
+            // A name the user typed wins; otherwise the manifest's own name is used, which is the
+            // "keep the original name" case.
+            String preferred = StringUtils.isNotBlank(requestedName) ? requestedName.trim() : modpack.getName();
+            String name = uniqueVersionName(repository, preferred);
             return new PendingModpack(archive, modpack, name, charset);
         }).whenComplete(Schedulers.javafx(), (pending, exception) -> {
             if (exception != null) {
