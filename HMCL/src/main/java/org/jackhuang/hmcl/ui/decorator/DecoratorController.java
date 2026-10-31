@@ -129,6 +129,16 @@ public class DecoratorController {
         return decorator;
     }
 
+    /// Returns the navigator that owns the page stack.
+    ///
+    /// <p>Plugins need it to go back one page after an action that started on a page —
+    /// a download, for instance, leaves the page that launched it pointless. Without an
+    /// accessor a plugin can only navigate forward, which would keep pushing pages and
+    /// make the back button lie about where the user came from.</p>
+    public Navigator getNavigator() {
+        return navigator;
+    }
+
     // ==== Navigation ====
 
     public void navigate(Node node, AnimationProducer animationProducer, Duration duration, Interpolator interpolator) {
