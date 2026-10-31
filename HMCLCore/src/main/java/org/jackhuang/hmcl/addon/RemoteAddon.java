@@ -162,7 +162,8 @@ public record RemoteAddon(String slug, String author, String title, String descr
                 CurseForgeRemoteAddonRepository.SHADERS,
                 CurseForgeRemoteAddonRepository.WORLDS,
                 CurseForgeRemoteAddonRepository.MODPACKS,
-                CurseForgeRemoteAddonRepository.CUSTOMIZATIONS
+                CurseForgeRemoteAddonRepository.CUSTOMIZATIONS,
+                CurseForgeRemoteAddonRepository.DATA_PACKS
         ),
         MODRINTH(
                 ModrinthRemoteAddonRepository.MODS,
@@ -170,7 +171,8 @@ public record RemoteAddon(String slug, String author, String title, String descr
                 ModrinthRemoteAddonRepository.SHADER_PACKS,
                 null,
                 ModrinthRemoteAddonRepository.MODPACKS,
-                null
+                null,
+                ModrinthRemoteAddonRepository.DATA_PACKS
         );
 
         public final RemoteAddonRepository modRepo;
@@ -179,6 +181,9 @@ public record RemoteAddon(String slug, String author, String title, String descr
         public final RemoteAddonRepository worldRepo;
         public final RemoteAddonRepository modpackRepo;
         public final RemoteAddonRepository customizationRepo;
+        /// Data packs, kept apart from resource packs because the game loads them from a
+        /// different folder and they affect different things.
+        public final RemoteAddonRepository dataPackRepo;
 
         @Nullable
         public RemoteAddonRepository getRepoForType(RemoteAddonRepository.Type type) {
@@ -186,6 +191,7 @@ public record RemoteAddon(String slug, String author, String title, String descr
                 case MOD -> modRepo;
                 case RESOURCE_PACK -> resourcePackRepo;
                 case SHADER_PACK -> shaderPackRepo;
+                case DATA_PACK -> dataPackRepo;
                 case WORLD -> worldRepo;
                 case MODPACK -> modpackRepo;
                 case CUSTOMIZATION -> customizationRepo;
@@ -198,7 +204,8 @@ public record RemoteAddon(String slug, String author, String title, String descr
                 RemoteAddonRepository shaderPackRepo,
                 RemoteAddonRepository worldRepo,
                 RemoteAddonRepository modpackRepo,
-                RemoteAddonRepository customizationRepo
+                RemoteAddonRepository customizationRepo,
+                RemoteAddonRepository dataPackRepo
         ) {
             this.modRepo = modRepo;
             this.resourcePackRepo = resourcePackRepo;
@@ -206,6 +213,7 @@ public record RemoteAddon(String slug, String author, String title, String descr
             this.worldRepo = worldRepo;
             this.modpackRepo = modpackRepo;
             this.customizationRepo = customizationRepo;
+            this.dataPackRepo = dataPackRepo;
         }
     }
 

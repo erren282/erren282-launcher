@@ -391,6 +391,7 @@ public class DownloadPage extends Control implements DecoratorPage {
                 case MOD -> org.jackhuang.hmcl.ui.download.DownloadPage.FOR_MOD;
                 case RESOURCE_PACK -> org.jackhuang.hmcl.ui.download.DownloadPage.FOR_RESOURCE_PACK;
                 case SHADER_PACK -> org.jackhuang.hmcl.ui.download.DownloadPage.FOR_SHADER;
+                case DATA_PACK -> org.jackhuang.hmcl.ui.download.DownloadPage.FOR_DATA_PACK;
                 default -> null; // Dependencies should not be modpacks, worlds or customized stuff
             };
             setOnAction((e) -> {
@@ -499,6 +500,7 @@ public class DownloadPage extends Control implements DecoratorPage {
                 case MODPACK -> "modpack.download.title";
                 case RESOURCE_PACK -> "resourcepack.download.title";
                 case SHADER_PACK -> "shaderpack.download.title";
+                case DATA_PACK -> "datapack.download.title";
                 default -> "mods.download.title";
             };
             this.setHeading(new HBox(new Label(i18n(title, version.name()))));

@@ -174,9 +174,21 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     private final Type type;
     private final int section;
 
+    /// Category to pin every search to, or 0 for none.
+    ///
+    /// <p>Needed because CurseForge files data packs under the resource-pack class: the only
+    /// way to browse them without also getting texture packs is to always send this filter,
+    /// including when the user has not picked a category.</p>
+    private final int fixedCategoryId;
+
     public CurseForgeRemoteAddonRepository(Type type, int section) {
+        this(type, section, 0);
+    }
+
+    public CurseForgeRemoteAddonRepository(Type type, int section, int fixedCategoryId) {
         this.type = type;
         this.section = section;
+        this.fixedCategoryId = fixedCategoryId;
     }
 
     @Override
@@ -267,6 +279,11 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
             if (category != null && category.self() instanceof Category) {
                 categoryId = ((Category) category.self()).getId();
             }
+            // A repository that is itself a category (data packs) keeps its filter even when
+            // the user picks a sub-category: without it the search would widen back to every
+            // resource pack.
+            if (categoryId == 0)
+                categoryId = fixedCategoryId;
 
             var query = new LinkedHashMap<String, String>();
             query.put("gameId", "432");
@@ -562,12 +579,24 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     public static final int SECTION_UNKNOWN2 = 4979;
     public static final int SECTION_UNKNOWN3 = 4984;
 
+    /// Category id of "Data Packs" inside the resource-pack class.
+    ///
+    /// <p>CurseForge has no separate class for data packs: they are filed under class 12
+    /// (resource packs) and told apart by this category. Verified against the live API — the
+    /// filter returns about two thousand entries, so it is a real subdivision rather than an
+    /// empty one.</p>
+    public static final int CATEGORY_DATA_PACK = 5193;
+
     public static final CurseForgeRemoteAddonRepository MODS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.MOD, SECTION_MOD);
     public static final CurseForgeRemoteAddonRepository MODPACKS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.MODPACK, SECTION_MODPACK);
     public static final CurseForgeRemoteAddonRepository RESOURCE_PACKS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.RESOURCE_PACK, SECTION_RESOURCE_PACK);
     public static final CurseForgeRemoteAddonRepository WORLDS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.WORLD, SECTION_WORLD);
     public static final CurseForgeRemoteAddonRepository CUSTOMIZATIONS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.CUSTOMIZATION, SECTION_CUSTOMIZATION);
     public static final CurseForgeRemoteAddonRepository SHADERS = new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.SHADER_PACK, SECTION_SHADER);
+
+    /// Data packs, pinned to their category inside the resource-pack class.
+    public static final CurseForgeRemoteAddonRepository DATA_PACKS =
+            new CurseForgeRemoteAddonRepository(RemoteAddonRepository.Type.DATA_PACK, SECTION_RESOURCE_PACK, CATEGORY_DATA_PACK);
 
     public record Pagination(int index, int pageSize, int resultCount, int totalCount) {
     }

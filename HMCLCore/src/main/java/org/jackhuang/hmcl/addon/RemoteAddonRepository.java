@@ -34,6 +34,13 @@ public interface RemoteAddonRepository {
         MODPACK,
         RESOURCE_PACK,
         SHADER_PACK,
+        /// A world's data pack: functions, advancements, recipes, loot tables.
+        ///
+        /// <p>Kept apart from [RESOURCE_PACK] because the two are not interchangeable: a data
+        /// pack goes into a world's `datapacks/` folder and is loaded by the server-side half
+        /// of the game, while a resource pack goes into `resourcepacks/` and only affects what
+        /// the client draws. Installing one as the other produces a folder the game ignores.</p>
+        DATA_PACK,
         WORLD,
         CUSTOMIZATION
     }

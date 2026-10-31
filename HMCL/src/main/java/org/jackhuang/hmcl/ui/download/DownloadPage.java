@@ -44,6 +44,7 @@ import org.jackhuang.hmcl.ui.animation.TransitionPane;
 import org.jackhuang.hmcl.ui.construct.AdvancedListBox;
 import org.jackhuang.hmcl.ui.construct.AdvancedListItem;
 import org.jackhuang.hmcl.ui.construct.MessageDialogPane;
+import org.jackhuang.hmcl.ui.construct.PromptDialogPane;
 import org.jackhuang.hmcl.ui.construct.TabHeader;
 import org.jackhuang.hmcl.ui.construct.Validator;
 import org.jackhuang.hmcl.ui.decorator.DecoratorAnimatedPage;
@@ -83,6 +84,13 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
             (downloadProvider, repository, version, pack, file) -> download(downloadProvider, repository, version, file, "resourcepacks");
     public static final org.jackhuang.hmcl.ui.versions.DownloadPage.DownloadCallback FOR_SHADER =
             (downloadProvider, repository, version, shader, file) -> download(downloadProvider, repository, version, file, "shaderpacks");
+    /// Data packs, which go into a chosen world rather than into the instance directory.
+    ///
+    /// <p>A data pack is loaded per world: the game reads `<world>/datapacks/`, so dropping one
+    /// into the instance folder does nothing. That is why this callback asks which world to
+    /// install into instead of reusing the generic file download.</p>
+    public static final org.jackhuang.hmcl.ui.versions.DownloadPage.DownloadCallback FOR_DATA_PACK =
+            (downloadProvider, repository, version, pack, file) -> downloadDataPack(downloadProvider, repository, version, file);
 
     private final ReadOnlyObjectWrapper<DecoratorPage.State> state = new ReadOnlyObjectWrapper<>(DecoratorPage.State.fromTitle(i18n("download"), -1));
     private final TabHeader tab;
@@ -90,6 +98,7 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
     private final TabHeader.Tab<DownloadListPage> modTab = new TabHeader.Tab<>("modTab");
     private final TabHeader.Tab<DownloadListPage> modpackTab = new TabHeader.Tab<>("modpackTab");
     private final TabHeader.Tab<DownloadListPage> resourcePackTab = new TabHeader.Tab<>("resourcePackTab");
+    private final TabHeader.Tab<DownloadListPage> dataPackTab = new TabHeader.Tab<>("dataPackTab");
     private final TabHeader.Tab<DownloadListPage> shaderTab = new TabHeader.Tab<>("shaderTab");
     private final TabHeader.Tab<DownloadListPage> worldTab = new TabHeader.Tab<>("worldTab");
     private final TransitionPane transitionPane = new TransitionPane();
@@ -117,9 +126,10 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
         }));
         modTab.setNodeSupplier(loadVersionFor(() -> HMCLLocalizedDownloadListPage.ofMod(FOR_MOD, true)));
         resourcePackTab.setNodeSupplier(loadVersionFor(() -> HMCLLocalizedDownloadListPage.ofResourcePack(FOR_RESOURCE_PACK, true)));
+        dataPackTab.setNodeSupplier(loadVersionFor(() -> HMCLLocalizedDownloadListPage.ofDataPack(FOR_DATA_PACK, true)));
         shaderTab.setNodeSupplier(loadVersionFor(() -> HMCLLocalizedDownloadListPage.ofShaderPack(FOR_SHADER, true)));
         worldTab.setNodeSupplier(loadVersionFor(() -> new DownloadListPage(CurseForgeRemoteAddonRepository.WORLDS)));
-        tab = new TabHeader(transitionPane, newGameTab, modpackTab, modTab, resourcePackTab, shaderTab, worldTab);
+        tab = new TabHeader(transitionPane, newGameTab, modpackTab, modTab, resourcePackTab, dataPackTab, shaderTab, worldTab);
 
         GameDirectoryManager.registerVersionsListener(this::loadVersions);
 
@@ -132,6 +142,7 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
                 .startCategory(i18n("download.content").toUpperCase(Locale.ROOT))
                 .addNavigationDrawerTab(tab, modTab, i18n("mods"), SVG.EXTENSION, SVG.EXTENSION_FILL)
                 .addNavigationDrawerTab(tab, resourcePackTab, i18n("resourcepack"), SVG.TEXTURE)
+                .addNavigationDrawerTab(tab, dataPackTab, i18n("datapack"), SVG.ARCHIVE, SVG.ARCHIVE_FILL)
                 .addNavigationDrawerTab(tab, shaderTab, i18n("download.shader"), SVG.WB_SUNNY, SVG.WB_SUNNY_FILL)
                 .addNavigationDrawerTab(tab, worldTab, i18n("world"), SVG.PUBLIC);
         FXUtils.setLimitWidth(sideBar, 200);
@@ -258,6 +269,106 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
 
     }
 
+    /// Installs a downloaded data pack into a world the user picks.
+    ///
+    /// <p>Unlike mods and resource packs, a data pack has no instance-level home: the game reads
+    /// `<world>/datapacks/`, so it only takes effect once a world is chosen. Asking here is what
+    /// makes the download actually do something; writing it to the instance directory instead
+    /// would leave a file the game never looks at.</p>
+    private static void downloadDataPack(DownloadProvider downloadProvider, HMCLGameRepository repository,
+                                        @Nullable String requestedVersion, RemoteAddon.Version pack) {
+        // Kept in its own final variable so the callback below can capture it: the parameter
+        // itself is reassigned when null, which disqualifies it as effectively final.
+        final String version = requestedVersion != null ? requestedVersion : repository.getSelectedInstance();
+
+        Path runDirectory = repository.hasVersion(version)
+                ? repository.getRunDirectory(version)
+                : repository.getBaseDirectory();
+        Path savesDirectory = runDirectory.resolve("saves");
+
+        List<Path> worlds;
+        try (var list = Files.list(savesDirectory)) {
+            worlds = list.filter(Files::isDirectory)
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            LOG.warning("Failed to list worlds in " + savesDirectory, e);
+            worlds = List.of();
+        }
+
+        if (worlds.isEmpty()) {
+            Controllers.dialog(i18n("datapack.no_worlds"), i18n("datapack.download.title", pack.name()),
+                    MessageDialogPane.MessageType.WARNING);
+            return;
+        }
+
+        // `worlds` is reassigned in the failure branch above, so it cannot be captured directly;
+        // the list the dialog works with is fixed at this point.
+        final List<Path> worldList = worlds;
+
+        // Folder names are what the launcher shows as world names in this context, and they are
+        // what the install step needs anyway.
+        String[] candidates = worldList.stream()
+                .map(path -> path.getFileName().toString())
+                .toArray(String[]::new);
+
+        PromptDialogPane.Builder.CandidatesQuestion question =
+                new PromptDialogPane.Builder.CandidatesQuestion(i18n("datapack.choose_world"), candidates);
+
+        Controllers.prompt(new PromptDialogPane.Builder(i18n("datapack.download.title", pack.name()),
+                (result, handler) -> {
+                    Integer index = question.getValue();
+                    if (index == null || index < 0 || index >= worldList.size()) {
+                        handler.reject(i18n("datapack.choose_world.required"));
+                        return;
+                    }
+                    handler.resolve();
+                    startDataPackDownload(downloadProvider, repository, version, pack,
+                            worldList.get(index).resolve("datapacks"));
+                })
+                .addQuestion(new PromptDialogPane.Builder.HintQuestion(i18n("datapack.choose_world.hint")))
+                .addQuestion(question));
+    }
+
+    /// Downloads the pack into the chosen world's `datapacks` folder.
+    ///
+    /// <p>Split from the chooser so the task holds no dialog state: the prompt is modal and has
+    /// already closed by the time `handler.resolve()` returns.</p>
+    private static void startDataPackDownload(DownloadProvider downloadProvider, HMCLGameRepository repository,
+                                              String version, RemoteAddon.Version pack, Path targetDirectory) {
+        try {
+            Files.createDirectories(targetDirectory);
+        } catch (IOException e) {
+            Controllers.dialog(i18n("datapack.failed.create_folder") + ": " + e.getMessage(),
+                    i18n("datapack.download.title", pack.name()), MessageDialogPane.MessageType.ERROR);
+            return;
+        }
+
+        // The pack keeps the file name the catalogue gave it: data pack zips are recognised by
+        // their contents, but keeping the publisher's name makes the folder readable.
+        String fileName = Path.of(pack.file().filename()).getFileName().toString();
+        Path dest = targetDirectory.resolve(fileName);
+
+        Controllers.taskDialog(Task.composeAsync(() -> {
+            var task = new FileDownloadTask(downloadProvider.injectURLWithCandidates(pack.file().url()), dest);
+            task.setName(pack.name());
+            return task;
+        }).whenComplete(Schedulers.javafx(), exception -> {
+            if (exception != null) {
+                if (exception instanceof CancellationException) {
+                    Controllers.showToast(i18n("message.cancelled"));
+                } else {
+                    Controllers.dialog(DownloadProviders.localizeErrorMessage(exception),
+                            i18n("install.failed.downloading"), MessageDialogPane.MessageType.ERROR);
+                }
+            } else {
+                Controllers.showToast(i18n("install.success"));
+                PluginAddonService.fireAddonDownloaded(new PluginAddonEvent(
+                        downloadProvider, repository, version, pack, targetDirectory));
+            }
+        }), i18n("message.downloading"), TaskCancellationAction.NORMAL);
+    }
+
     private void loadVersions(HMCLGameRepository repository) {
         listenerHolder = new WeakListenerHolder();
         runInFX(() -> {
@@ -271,6 +382,9 @@ public class DownloadPage extends DecoratorAnimatedPage implements DecoratorPage
                     }
                     if (resourcePackTab.isInitialized()) {
                         resourcePackTab.getNode().loadInstance(repository, null);
+                    }
+                    if (dataPackTab.isInitialized()) {
+                        dataPackTab.getNode().loadInstance(repository, null);
                     }
                     if (shaderTab.isInitialized()) {
                         shaderTab.getNode().loadInstance(repository, null);

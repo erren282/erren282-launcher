@@ -64,6 +64,16 @@ public final class HMCLLocalizedDownloadListPage extends DownloadListPage {
         return page;
     }
 
+    /// Data packs from both sources.
+    ///
+    /// <p>Kept separate from [=ofResourcePack] rather than sharing its page: the two are catalogued
+    /// differently (CurseForge files data packs under a category of the resource-pack class, and
+    /// Modrinth labels them with a `datapack` tag on ordinary mod projects), so the repositories
+    /// differ even though both are zips the game reads.</p>
+    public static DownloadListPage ofDataPack(DownloadPage.DownloadCallback callback, boolean versionSelection) {
+        return new HMCLLocalizedDownloadListPage(callback, versionSelection, RemoteAddonRepository.Type.DATA_PACK, CurseForgeRemoteAddonRepository.DATA_PACKS, ModrinthRemoteAddonRepository.DATA_PACKS);
+    }
+
     private HMCLLocalizedDownloadListPage(DownloadPage.DownloadCallback callback, boolean versionSelection, RemoteAddonRepository.Type type, CurseForgeRemoteAddonRepository curseForge, ModrinthRemoteAddonRepository modrinth) {
         super(null, callback, versionSelection);
 

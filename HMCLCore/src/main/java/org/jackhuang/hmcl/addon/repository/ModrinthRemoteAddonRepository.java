@@ -51,6 +51,8 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
     public static final ModrinthRemoteAddonRepository MODPACKS = new ModrinthRemoteAddonRepository("modpack");
     public static final ModrinthRemoteAddonRepository RESOURCE_PACKS = new ModrinthRemoteAddonRepository("resourcepack");
     public static final ModrinthRemoteAddonRepository SHADER_PACKS = new ModrinthRemoteAddonRepository("shader");
+    /// Data packs: ordinary `mod` projects carrying the `datapack` category.
+    public static final ModrinthRemoteAddonRepository DATA_PACKS = new ModrinthRemoteAddonRepository("mod", "datapack");
 
     private static final Comparator<String> TAG_COMPARATOR = PriorityComparator.of(
             List.of("babric",
@@ -328,13 +330,26 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
 
     private final RemoteAddonRepository.Type type;
 
+    /// Facet that every search is pinned to, or `null` for none.
+    ///
+    /// <p>Modrinth has no separate project type for data packs: they are published as `mod`
+    /// and marked with the `datapack` category. Browsing them therefore means always adding
+    /// that facet, even when the user has not picked a category — otherwise the list is
+    /// dominated by ordinary mods.</p>
+    private final String fixedFacet;
+
     private ModrinthRemoteAddonRepository(String projectType) {
+        this(projectType, null);
+    }
+
+    private ModrinthRemoteAddonRepository(String projectType, String fixedFacet) {
         this.projectType = projectType;
+        this.fixedFacet = fixedFacet;
         this.type = switch (projectType) {
             case "modpack" -> Type.MODPACK;
             case "resourcepack" -> Type.RESOURCE_PACK;
             case "shader" -> Type.SHADER_PACK;
-            default -> Type.MOD;
+            default -> fixedFacet != null && fixedFacet.equals("datapack") ? Type.DATA_PACK : Type.MOD;
         };
     }
 
@@ -376,6 +391,10 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
             if (category != null && StringUtils.isNotBlank(category.id())) {
                 facets.add(Collections.singletonList("categories:" + category.id()));
             }
+            // A repository that is itself a category keeps its facet even when the user picks
+            // one, so browsing data packs cannot silently widen back to every mod.
+            if (fixedFacet != null)
+                facets.add(Collections.singletonList("categories:" + fixedFacet));
             // The loader is a facet like any other. Modrinth treats several values inside one
             // facet group as OR and separate groups as AND, which is exactly the wanted behaviour:
             // "this loader" combined with the version and category constraints.
