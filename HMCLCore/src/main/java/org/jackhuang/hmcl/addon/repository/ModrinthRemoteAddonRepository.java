@@ -164,6 +164,166 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
         return List.copyOf(result);
     }
 
+    /// Whether both sources should be tried at the same time instead of one after another.
+    ///
+    /// <p>Trying them in order made every request pay for the slow one first: whichever of the
+    /// official API and the mirror happens to be degraded at that moment adds its full timeout
+    /// before the fallback is even attempted. Racing them means the first answer wins, and the
+    /// winner is remembered so later requests go straight to it.</p>
+    private static volatile boolean raceEnabled = !"false".equalsIgnoreCase(
+            System.getProperty("hmcl.modrinth.race", "true"));
+
+    /// Base hosts that recently answered fastest, most preferred first.
+    ///
+    /// <p>Empty until the first race completes; filled with the observed order afterwards so the
+    /// win is kept for the rest of the session rather than re-raced on every request.</p>
+    private static final java.util.concurrent.atomic.AtomicReference<List<String>> preferredBases =
+            new java.util.concurrent.atomic.AtomicReference<>(List.of());
+
+    /// Fetches the search response from the candidates in order, without racing.
+    ///
+    /// <p>Kept so the earlier behaviour stays available via `-Dhmcl.modrinth.race=false`.</p>
+    ///
+    /// @param candidates the URLs to try
+    /// @return the first successful response
+    /// @throws IOException when every candidate failed
+    private static Response<ProjectSearchResult> fetchSequential(List<URI> candidates) throws IOException {
+        IOException failure = null;
+        for (URI candidate : candidates) {
+            try {
+                LOG.info("Fetching " + candidate);
+                return HttpRequest.GET(candidate.toString())
+                        .getJson(Response.typeOf(ProjectSearchResult.class));
+            } catch (IOException e) {
+                LOG.warning("Failed to search addons: " + candidate, e);
+                if (failure == null)
+                    failure = new IOException("Failed to search addons");
+                failure.addSuppressed(e);
+            }
+        }
+        throw failure != null ? failure : new IOException("No candidates found");
+    }
+
+    /// Races the candidates and returns the first successful response.
+    ///
+    /// <p>The loser is not cancelled explicitly — its result is simply discarded. These are short
+    /// JSON requests, and leaving them to finish keeps the code free of thread interruption
+    /// subtleties.</p>
+    ///
+    /// @param candidates the URLs to try
+    /// @param fetch      performs one request and returns its result
+    /// @param <T>        the response type
+    /// @return the first successful result
+    /// @throws IOException when every candidate failed
+    private static <T> T fetchRacing(List<URI> candidates,
+                                     java.util.function.Function<URI, T> fetch) throws IOException {
+        if (candidates.isEmpty())
+            throw new IOException("No candidates found");
+
+        List<URI> ordered = orderByPreference(candidates);
+
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(ordered.size(), runnable -> {
+                    Thread thread = new Thread(runnable, "modrinth-race");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        try {
+            java.util.concurrent.CompletionService<Won<T>> completion =
+                    new java.util.concurrent.ExecutorCompletionService<>(pool);
+            for (URI candidate : ordered) {
+                completion.submit(() -> {
+                    LOG.info("Fetching " + candidate);
+                    return new Won<>(candidate, fetch.apply(candidate));
+                });
+            }
+
+            IOException failure = null;
+            for (int i = 0; i < ordered.size(); i++) {
+                try {
+                    java.util.concurrent.Future<Won<T>> done = completion.take();
+                    Won<T> won = done.get();
+                    rememberWinner(won.uri());
+                    return won.value();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof java.io.UncheckedIOException unchecked)
+                        cause = unchecked.getCause();
+                    failure = cause instanceof IOException io
+                            ? io
+                            : new IOException(String.valueOf(cause), cause);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while fetching", e);
+                }
+            }
+            throw failure != null ? failure : new IOException("No candidates found");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /// A response together with the candidate that produced it.
+    ///
+    /// @param uri   the winning URL
+    /// @param value the response
+    /// @param <T>   the response type
+    private record Won<T>(URI uri, T value) {
+    }
+
+    /// Sorts candidates so a remembered winner is tried first.
+    ///
+    /// <p>Racing stays the fallback: once a host has won, it is asked alone first, which keeps the
+    /// common case to a single request.</p>
+    ///
+    /// @param candidates the candidates
+    /// @return the reordered list
+    private static List<URI> orderByPreference(List<URI> candidates) {
+        List<String> preferred = preferredBases.get();
+        if (preferred.isEmpty())
+            return candidates;
+
+        List<URI> ordered = new ArrayList<>(candidates);
+        ordered.sort((a, b) -> Integer.compare(rank(a, preferred), rank(b, preferred)));
+        return ordered;
+    }
+
+    /// Returns how preferred a candidate is; lower is better.
+    ///
+    /// @param uri       the candidate
+    /// @param preferred the remembered base hosts
+    /// @return the index in the preference list, or a large value when unknown
+    private static int rank(URI uri, List<String> preferred) {
+        String host = uri.getHost();
+        if (host == null)
+            return Integer.MAX_VALUE;
+        for (int i = 0; i < preferred.size(); i++) {
+            if (host.equals(preferred.get(i)))
+                return i;
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    /// Records the host that answered first, moving it to the front of the preference list.
+    ///
+    /// @param winner the candidate that produced the response
+    private static void rememberWinner(URI winner) {
+        String host = winner.getHost();
+        if (host == null)
+            return;
+
+        preferredBases.updateAndGet(current -> {
+            List<String> next = new ArrayList<>();
+            next.add(host);
+            for (String existing : current) {
+                if (!existing.equals(host))
+                    next.add(existing);
+            }
+            return List.copyOf(next);
+        });
+    }
+
+
     private final String projectType;
 
     private final RemoteAddonRepository.Type type;
@@ -234,29 +394,24 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
 
             List<URI> candidates = apiCandidates(downloadProvider,
                     NetworkUtils.withQuery("/v2/search", query));
-            IOException exception = null;
-            for (URI candidate : candidates) {
-                try {
-                    LOG.info("Fetching " + candidate);
-                    Response<ProjectSearchResult> response = HttpRequest.GET(candidate.toString())
-                            .getJson(Response.typeOf(ProjectSearchResult.class));
-                    return new SearchResult(response.getHits().stream().map(ProjectSearchResult::toMod), (int) Math.ceil((double) response.totalHits / pageSize));
-                } catch (IOException e) {
-                    LOG.warning("Failed to search addons: " + candidate, e);
 
-                    IOException wrapper = new IOException("Failed to search addons: " + candidate, e);
-                    if (candidates.size() == 1) {
-                        exception = wrapper;
-                    } else {
-                        if (exception == null) {
-                            exception = new IOException("Failed to search addons");
+            // The official API and the mirror are both unreliable in different moments — the
+            // official host occasionally takes several seconds while the mirror is steady, and
+            // vice versa. Asking them in turn made every request wait out the slow one, so they
+            // are raced instead and the first answer is used.
+            Response<ProjectSearchResult> response = raceEnabled
+                    ? fetchRacing(candidates, candidate -> {
+                        try {
+                            return HttpRequest.GET(candidate.toString())
+                                    .getJson(Response.typeOf(ProjectSearchResult.class));
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
                         }
-                        exception.addSuppressed(wrapper);
-                    }
-                }
-            }
+                    })
+                    : fetchSequential(candidates);
 
-            throw exception != null ? exception : new IOException("No candidates found");
+            return new SearchResult(response.getHits().stream().map(ProjectSearchResult::toMod),
+                    (int) Math.ceil((double) response.totalHits / pageSize));
         } finally {
             SEMAPHORE.release();
         }
