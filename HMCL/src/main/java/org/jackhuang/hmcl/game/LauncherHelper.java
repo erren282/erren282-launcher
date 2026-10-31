@@ -136,13 +136,24 @@ public final class LauncherHelper {
 
         // Plugins that add UI need to know a launch is in flight so they can stop offering actions
         // that would interfere with it.
-        org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
-                new org.jackhuang.hmcl.event.GameLaunchStateEvent(this,
-                        org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.STARTING,
-                        selectedVersion));
+        fireLaunchState(org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.STARTING);
 
         Controllers.dialog(launchingStepsPane);
         launch0();
+    }
+
+    /// Tells plugins what the launch state is now.
+    ///
+    /// <p>Reporting must never break the launch flow, so a failure here is swallowed.</p>
+    ///
+    /// @param phase what happened
+    private void fireLaunchState(org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase phase) {
+        try {
+            org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
+                    new org.jackhuang.hmcl.event.GameLaunchStateEvent(this, phase, selectedVersion));
+        } catch (Throwable ignored) {
+            // Reporting is best-effort.
+        }
     }
 
     public void makeLaunchScript(Path scriptFile) {
@@ -297,6 +308,12 @@ public final class LauncherHelper {
             @Override
             public void onStop(boolean success, TaskExecutor executor) {
                 runLater(() -> {
+                    // The launch is over, whether it started the game, failed, or was cancelled.
+                    // This is the only place that covers all three endings: `finishLaunch` runs
+                    // from the process listener, so a launch that never produced a process left
+                    // plugins disabled forever. Plugins re-enable what they turned off here.
+                    fireLaunchState(org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.FINISHED);
+
                     // Check if the application has stopped
                     // because onStop will be invoked if tasks fail when the executor service shut down.
                     if (!Controllers.isStopped()) {
@@ -899,15 +916,15 @@ public final class LauncherHelper {
         private void finishLaunch() {
             // The launch is over, whether it succeeded or the window is coming back; plugins can
             // re-enable whatever they disabled for the duration.
+            //
+            // `onStop` already reported this for every ending; this is the path taken when the
+            // game process actually exits, and firing twice is harmless (the handler is
+            // idempotent) while a missed report would leave the UI disabled forever.
             try {
-                runLater(() -> org.jackhuang.hmcl.event.EventBus.EVENT_BUS.fireEvent(
-                        new org.jackhuang.hmcl.event.GameLaunchStateEvent(LauncherHelper.this,
-                                org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.FINISHED,
-                                selectedVersion)));
+                runLater(() -> fireLaunchState(org.jackhuang.hmcl.event.GameLaunchStateEvent.Phase.FINISHED));
             } catch (Throwable ignored) {
                 // Reporting must never break the launch flow.
             }
-
             switch (launcherVisibility) {
                 case HIDE_AND_REOPEN:
                     runLater(() -> {
