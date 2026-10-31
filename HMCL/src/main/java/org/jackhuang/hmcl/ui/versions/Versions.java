@@ -31,6 +31,7 @@ import org.jackhuang.hmcl.download.game.GameDownloadTask;
 import org.jackhuang.hmcl.download.game.GameLibrariesTask;
 import org.jackhuang.hmcl.game.*;
 import org.jackhuang.hmcl.addon.RemoteAddon;
+import org.jackhuang.hmcl.modpack.Modpack;
 import org.jackhuang.hmcl.setting.*;
 import org.jackhuang.hmcl.task.FileDownloadTask;
 import org.jackhuang.hmcl.task.Schedulers;
@@ -47,11 +48,13 @@ import org.jackhuang.hmcl.ui.download.ModpackInstallWizardProvider;
 import org.jackhuang.hmcl.ui.export.ExportWizardProvider;
 import org.jackhuang.hmcl.util.StringUtils;
 import org.jackhuang.hmcl.util.TaskCancellationAction;
+import org.jackhuang.hmcl.util.io.CompressingUtils;
 import org.jackhuang.hmcl.util.io.FileUtils;
 import org.jackhuang.hmcl.util.platform.OperatingSystem;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -94,14 +97,12 @@ public final class Versions {
                 new FileDownloadTask(downloadURLs, modpack)
                         .whenComplete(Schedulers.javafx(), e -> {
                             if (e == null) {
-                                ModpackInstallWizardProvider installWizardProvider;
-                                if (version != null)
-                                    installWizardProvider = new ModpackInstallWizardProvider(repository, modpack, version);
-                                else
-                                    installWizardProvider = new ModpackInstallWizardProvider(repository, modpack);
-                                if (StringUtils.isNotBlank(mod.iconUrl()))
-                                    installWizardProvider.setIconUrl(mod.iconUrl());
-                                Controllers.getDecorator().startWizard(installWizardProvider);
+                                // Installing straight away: the archive already names itself and
+                                // carries its own manifest, so the confirmation page only asked the
+                                // user to press the same button a second time. The name comes from
+                                // the manifest, falling back to the archive name, and a numeric
+                                // suffix keeps an existing version from being overwritten.
+                                installModpackDirectly(repository, modpack, mod.iconUrl());
                             } else if (e instanceof CancellationException) {
                                 Controllers.showToast(i18n("message.cancelled"));
                             } else {
@@ -113,6 +114,77 @@ public final class Versions {
                 i18n("message.downloading"),
                 TaskCancellationAction.NORMAL
         );
+    }
+
+    /// Reads a downloaded archive and installs it without asking for confirmation.
+    ///
+    /// <p>The archive is inspected off the FX thread, then the install runs as an ordinary task
+    /// dialog so progress and cancellation behave exactly like a manual install.</p>
+    ///
+    /// @param repository the target repository
+    /// @param archive    the downloaded archive
+    /// @param iconUrl    the icon to embed, or `null`
+    private static void installModpackDirectly(HMCLGameRepository repository, Path archive, String iconUrl) {
+        Task.supplyAsync(Schedulers.io(), () -> {
+            Charset charset = CompressingUtils.findSuitableEncoding(archive);
+            Modpack modpack = ModpackHelper.readModpackManifest(archive, charset);
+            String name = uniqueVersionName(repository, modpack.getName());
+            return new PendingModpack(archive, modpack, name, charset);
+        }).whenComplete(Schedulers.javafx(), (pending, exception) -> {
+            if (exception != null) {
+                LOG.warning("Failed to read modpack manifest", exception);
+                if (exception instanceof ManuallyCreatedModpackException) {
+                    // A plain archive has no manifest to install from; hand it to the wizard, which
+                    // knows how to wrap it.
+                    ModpackInstallWizardProvider provider = new ModpackInstallWizardProvider(repository, archive);
+                    if (StringUtils.isNotBlank(iconUrl))
+                        provider.setIconUrl(iconUrl);
+                    Controllers.getDecorator().startWizard(provider);
+                } else {
+                    Controllers.dialog(i18n("modpack.task.install.error"), i18n("message.error"),
+                            MessageDialogPane.MessageType.ERROR);
+                }
+                return;
+            }
+
+            Task<?> install = ModpackHelper.getInstallTask(repository, pending.archive(),
+                            pending.name(), pending.modpack(), iconUrl)
+                    .thenRunAsync(Schedulers.javafx(), () -> repository.setSelectedInstance(pending.name()));
+
+            Controllers.taskDialog(install, i18n("install.modpack.installation"),
+                    TaskCancellationAction.NORMAL);
+        }).start();
+    }
+
+    /// A manifest and the name it will be installed under.
+    ///
+    /// @param archive the archive to install
+    /// @param modpack the parsed manifest
+    /// @param name    the instance name, guaranteed not to collide
+    /// @param charset the archive encoding
+    private record PendingModpack(Path archive, Modpack modpack, String name, Charset charset) {
+    }
+
+    /// Returns a version name that does not collide with an installed one.
+    ///
+    /// <p>Installing over an existing version would silently replace it, so a numeric suffix is
+    /// appended instead — the same result the user would get by editing the name on the page that
+    /// is no longer shown.</p>
+    ///
+    /// @param repository the repository to check against
+    /// @param preferred  the manifest's own name
+    /// @return a free name
+    private static String uniqueVersionName(HMCLGameRepository repository, String preferred) {
+        String base = StringUtils.isBlank(preferred) ? "modpack" : preferred.trim();
+        if (!repository.versionIdConflicts(base))
+            return base;
+
+        for (int i = 2; i < 1000; i++) {
+            String candidate = base + " (" + i + ")";
+            if (!repository.versionIdConflicts(candidate))
+                return candidate;
+        }
+        return base + " (" + System.currentTimeMillis() + ")";
     }
 
     public static void deleteVersion(HMCLGameRepository repository, String version) {
