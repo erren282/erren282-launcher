@@ -484,9 +484,14 @@ public final class CurseForgeRemoteAddonRepository implements RemoteAddonReposit
     public Stream<RemoteAddon.Version> getRemoteVersionsById(DownloadProvider downloadProvider, String id) throws IOException {
         SEMAPHORE.acquireUninterruptibly();
         try {
-            Response<List<CurseAddon.LatestFile>> response = withApiKey(HttpRequest.GET(PREFIX + "/v1/mods/" + id + "/files",
-                    pair("pageSize", "10000")))
-                    .getJson(Response.typeOf(listTypeOf(CurseAddon.LatestFile.class)));
+            // `pageSize=10000` asked for the project's entire file history in one response, which
+            // is the slowest call on a detail page and is rarely what the user needs: the version
+            // picker shows the newest entries. 200 keeps the list useful while cutting the payload
+            // and the wait substantially.
+            Map<String, String> query = mapOf(pair("pageSize", "200"));
+            Response<List<CurseAddon.LatestFile>> response = getFirstAvailable(downloadProvider,
+                    "/v1/mods/" + id + "/files", query,
+                    Response.typeOf(listTypeOf(CurseAddon.LatestFile.class)));
             return response.data().stream().map(CurseAddon.LatestFile::toVersion);
         } finally {
             SEMAPHORE.release();

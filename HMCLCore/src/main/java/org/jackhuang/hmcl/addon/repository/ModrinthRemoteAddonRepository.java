@@ -520,30 +520,48 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
 
             List<URI> candidates = apiCandidates(downloadProvider,
                     "/v2/project/" + id + "/version?include_changelog=false");
-            IOException exception = null;
 
-            for (URI candidate : candidates) {
-                try {
-                    List<ProjectVersion> versions = HttpRequest.GET(candidate.toString())
-                            .getJson(listTypeOf(ProjectVersion.class));
-                    return versions.stream().map(ProjectVersion::toVersion).flatMap(Lang::toStream);
-                } catch (IOException e) {
-                    IOException wrapper = new IOException("Failed to get remote versions: " + candidate, e);
-                    if (candidates.size() == 1) {
-                        exception = wrapper;
-                    } else {
-                        if (exception == null) {
-                            exception = new IOException("Failed to get remote versions");
+            // Version lists are the heavy request behind a project's detail page, and the mirror
+            // can take an order of magnitude longer than the official API for them (measured:
+            // 17 s vs 4.6 s). Waiting for the mirror first meant every detail page stalled on it
+            // before falling back. Racing makes the faster answer win.
+            List<ProjectVersion> versions = raceEnabled
+                    ? fetchRacing(candidates, candidate -> {
+                        try {
+                            return HttpRequest.GET(candidate.toString())
+                                    .getJson(listTypeOf(ProjectVersion.class));
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
                         }
-                        exception.addSuppressed(wrapper);
-                    }
-                }
-            }
+                    })
+                    : fetchVersionsSequential(candidates);
 
-            throw exception != null ? exception : new IOException("No candidates found");
+            return versions.stream().map(ProjectVersion::toVersion).flatMap(Lang::toStream);
         } finally {
             SEMAPHORE.release();
         }
+    }
+
+    /// Fetches a version list from the candidates in order.
+    ///
+    /// @param candidates the URLs to try
+    /// @return the first successful list
+    /// @throws IOException when every candidate failed
+    private static List<ProjectVersion> fetchVersionsSequential(List<URI> candidates) throws IOException {
+        IOException failure = null;
+        for (URI candidate : candidates) {
+            try {
+                LOG.info("Fetching " + candidate);
+                return HttpRequest.GET(candidate.toString())
+                        .getJson(listTypeOf(ProjectVersion.class));
+            } catch (IOException e) {
+                LOG.warning("Failed to get remote versions: " + candidate, e);
+                if (failure == null)
+                    failure = new IOException("Failed to get remote versions");
+                failure.addSuppressed(e);
+            }
+        }
+        throw failure != null ? failure : new IOException("No candidates found");
     }
 
     @Override
@@ -580,9 +598,36 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
                           @SerializedName("icon_url") String iconUrl, String id, String team, Instant published,
                           Instant updated, List<String> versions) implements RemoteAddon.IMod {
 
+        /// Cached version list for this project, keyed by project id.
+        ///
+        /// <p>`loadVersions` and `loadDependencies` both need it, and it is the single most
+        /// expensive request on the detail page. Fetching it twice doubled the wait. A record
+        /// cannot hold mutable state, so the cache lives beside it.</p>
+        private static final java.util.concurrent.ConcurrentHashMap<String, List<RemoteAddon.Version>> VERSION_CACHE =
+                new java.util.concurrent.ConcurrentHashMap<>();
+
+        /// Returns the version list, fetching it at most once per project.
+        ///
+        /// @param modRepository    the repository
+        /// @param downloadProvider the provider
+        /// @param projectId        the project id
+        /// @return the versions
+        /// @throws IOException when the fetch fails
+        private static List<RemoteAddon.Version> versionsOnce(RemoteAddonRepository modRepository,
+                                                              DownloadProvider downloadProvider,
+                                                              String projectId) throws IOException {
+            List<RemoteAddon.Version> versions = VERSION_CACHE.get(projectId);
+            if (versions != null)
+                return versions;
+
+            versions = modRepository.getRemoteVersionsById(downloadProvider, projectId).toList();
+            VERSION_CACHE.put(projectId, versions);
+            return versions;
+        }
+
         @Override
         public List<RemoteAddon> loadDependencies(RemoteAddonRepository modRepository, DownloadProvider downloadProvider) throws IOException {
-            Set<RemoteAddon.Dependency> dependencies = modRepository.getRemoteVersionsById(downloadProvider, id())
+            Set<RemoteAddon.Dependency> dependencies = versionsOnce(modRepository, downloadProvider, id()).stream()
                     .flatMap(version -> version.dependencies().stream())
                     .collect(Collectors.toSet());
             List<RemoteAddon> mods = new ArrayList<>();
@@ -594,7 +639,7 @@ public final class ModrinthRemoteAddonRepository implements RemoteAddonRepositor
 
         @Override
         public Stream<RemoteAddon.Version> loadVersions(RemoteAddonRepository modRepository, DownloadProvider downloadProvider) throws IOException {
-            return modRepository.getRemoteVersionsById(downloadProvider, id());
+            return versionsOnce(modRepository, downloadProvider, id()).stream();
         }
 
         public RemoteAddon toMod() {
